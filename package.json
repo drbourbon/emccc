@@ -1,0 +1,20 @@
+{
+  "name": "emccc",
+  "version": "1.0.0",
+  "description": "elektron model:cycles chord machine midi converter",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Fabio Barbon",
+  "license": "ISC",
+  "dependencies": {
+    "@tonaljs/chord": "^3.5.1",
+    "@tonaljs/chord-detect": "^3.5.1",
+    "@tonaljs/midi": "^3.5.0",
+    "@tonaljs/pcset": "^3.5.0",
+    "bootstrap": "^4.4.1",
+    "jquery": "^3.4.1",
+    "webmidi": "^2.5.1"
+  }
+}

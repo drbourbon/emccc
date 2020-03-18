@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.min.css">
+  </head>
+  <body class="container-fluid mt-4 d-flex justify-content-center flex-column">
+
+      <div class="form-group mb-2">
+        <select id="channel" class="custom-select">
+          <option selected>Chord Machine MIDI Channel</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+        </select>        
+      </div>
+
+      <br>
+    <div class="d-flex justify-content-center">
+      <h1 id="out" class="display-2 col-sm-12"></h1>
+    </div>
+    <br>
+    <div class="d-flex justify-content-center">
+      <h2 id="shape" class="display-4 col-sm-12"></h2>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/node_modules/jquery/dist/jquery.min.js"></script>
+    <script src="/node_modules/webmidi/webmidi.min.js"></script>
+    <script src="detect.js"></script>
+
+<script>
+$(function() {
+  enableWebMidi(); 
+  $(document).on("emccc:chord", (e,c,r) => {
+    if(c){
+      $('#out').text(c);
+      if(r && r.shape && r.color){
+        $('#shape').text(`shape:${r.shape}, color:${r.color}, note:${r.tonica}`);
+      }
+    } else {
+//      $('#out').text("");
+    }
+  })
+  $('#channel').change(e => {
+    SetEMCChannel($('#channel').val());
+  })
+})
+</script>
+
+  </body>
+</html>
