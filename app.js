@@ -10,8 +10,8 @@ var last_emc_note = 0;
 function sendShapeColor(note, shape, color, channel) {
 //    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color} on Channel ${channel}`);
     last_emc_note = note;
-//    device.sendControlChange(17,shape).sendControlChange(16,color).playNote(note, channel);
-    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
+    device.sendControlChange(17,shape).sendControlChange(16,color).playNote(note, channel);
+//    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
 }
 
 function sendOff(channel) {
@@ -27,9 +27,13 @@ function enableWebMidi() {
             $('#device_status').css('color', 'red');
             $('#connection-info').hide();
             $('.device-connected').hide();
+            $('.unsupported').show();
+
             return;
         }
-    
+
+        $('.unsupported').hide();
+        
         WebMidi.addListener('connected', function (event) {
             handleConnection(event, true);
         });
@@ -37,6 +41,7 @@ function enableWebMidi() {
             handleConnection(event, false);
         });
         onDisconnect();
+        disconnectInputs();
     }, sysex=false);    
 }
 
@@ -44,51 +49,13 @@ function isModelCycles(s){
     return s.name == 'Elektron Model:Cycles'
 }
 
-function handleConnection(event, state) {
-//    console.log("MIDI connection event: " + state + ". Payload[" + JSON.stringify(event) + "]");
-    
-    if(state===true){
-        for (var i = 0; i < WebMidi.outputs.length; i++) {
-//            console.log('Output', WebMidi.outputs[i].name, WebMidi.outputs[i]);
-    
-            if (isModelCycles(WebMidi.outputs[i])) {
-                device = WebMidi.outputs[i];
-                break;
-            }
-        }
-
-        if(device)
-            onConnect();
-        else
-            onDisconnect();
-
-    } else {
-        onDisconnect();
-    }
-}
-
-function isConnected() {
-    return device && device.enabled // && device.sysexEnabled;
-}
-
-
-var current_notes = new Array(127).fill(false);
-var connection_complete = false
-function onConnect() {
-    $('#unconnected_message').hide();
-    $('#device_status').css('color', 'green');
-    $('#connection-info').show();
-    
-    $('.device-connected').show();
-    $('.device-disconnected').hide();
-
-    $('.device-enabled').removeClass('disabled');
-    $('.device-disabled').addClass('disabled');
-    
+function connectInputs() {
     var input = null;
+    var keysconnected = false;
     for (var i = 0; i < WebMidi.inputs.length; i++) {
 //        console.log('Input', WebMidi.inputs[i].name, WebMidi.outputs[i]);
         if (!isModelCycles(WebMidi.outputs[i])) {
+            keysconnected = true;
             input = WebMidi.inputs[i];
             input.removeListener();
             input.addListener('noteon', "all", function (event) {
@@ -106,6 +73,78 @@ function onConnect() {
         }
     }
 
+    if(keysconnected){
+        $('.keys-connected').show();
+        $('.keys-disconnected').hide();
+    } else {
+        $('.keys-connected').hide();
+        $('.keys-disconnected').show();
+    }
+
+}
+
+function disconnectInputs() {
+    $('.keys-connected').hide();
+    $('.keys-disconnected').show();
+}
+
+function handleConnection(event, state) {
+//    console.log("MIDI connection event: " + state + ". Payload[" + JSON.stringify(event) + "]");
+
+    if(state==true){
+        if(isModelCycles(event.port)){
+            device = event.port;
+            onConnect();
+        } else {
+            connectInputs();
+        }
+    } else {
+        if(isModelCycles(event.port)){
+            onDisconnect();
+        } else {
+            disconnectInputs();
+        }
+    }
+    /*
+    if(state===true){
+        device = WebMidi.outputs[i];
+
+        for (var i = 0; i < WebMidi.outputs.length; i++) {
+//            console.log('Output', WebMidi.outputs[i].name, WebMidi.outputs[i]);
+    
+            if (isModelCycles(WebMidi.outputs[i])) {
+                device = WebMidi.outputs[i];
+                break;
+            }
+        }
+
+        if(device)
+            onConnect();
+        else
+            onDisconnect();
+
+        connectInputs()
+        
+    } else {
+        onDisconnect();
+    }
+    */
+}
+
+
+var current_notes = new Array(127).fill(false);
+var connection_complete = false
+function onConnect() {
+    $('#unconnected_message').hide();
+    $('#device_status').css('color', 'green');
+    $('#connection-info').show();
+    
+    $('.device-connected').show();
+    $('.device-disconnected').hide();
+
+    $('.device-enabled').removeClass('disabled');
+    $('.device-disabled').addClass('disabled');
+    
     connection_complete = true;
     console.log('Connection established');
 }
@@ -120,6 +159,12 @@ function onDisconnect() {
 
     $('.device-connected').hide();
     $('.device-disconnected').show();
+
+    /*
+    $('.keys-connected').hide();
+    $('.keys-disconnected').show();
+    */
+
     $('.device-enabled').addClass('disabled');
     $('.device-disabled').removeClass('disabled');
 
@@ -145,7 +190,9 @@ function playedChord(send) {
                 chord.push(m.midiToNoteName(i, { sharps: true }));
             }
         }
+        //console.log(chord);
         const name = c.detect(chord);
+        //console.log(name);
         if(name.length>0){
             const cname = soloTipo(name[0])=='m#5' && name.length>1 ? name[1] : name[0]; // TODO others
 
@@ -176,7 +223,7 @@ function playedChord(send) {
     
                 const tonicaCode = m.toMidi(tonica);
 
-                tonica = tonica.slice(0,-1) + (parseInt(tonica.slice(-1))+1) // trick
+                tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
 
                 if(emc_channel && shape && color && tonicaCode){
                     sendShapeColor(tonicaCode, shape-1, color-1, emc_channel);
@@ -185,15 +232,49 @@ function playedChord(send) {
                         "shape":shape,
                         "color":color,
                         "tonica":tonica,
-                        "chord":chord
+                        "notes":chord
                     } ]);
                     return;
                 }
             }
 
-            $(document).trigger('emccc:chord',[ base, ""+rivolto, chord ]);
+            //$(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
             return;
         }
+    } else if (false /*n==1*/) {
+        var note = 0;
+        for(var i=0; i<current_notes.length; i++){
+            if(current_notes[i]){
+                note = m.midiToNoteName(i, { sharps: true });
+                break;
+            }
+        }
+        const cname = soloNota(note);
+
+        if(send){
+            const shape = 1;
+            const color = 1; // detune
+            var tonica = note;
+            const tonicaCode = m.toMidi(tonica);
+    
+            tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
+    
+            if(emc_channel){
+                sendShapeColor(tonicaCode, shape-1, color-1, emc_channel);
+                /*
+                $(document).trigger('emccc:chord',[ cname, {
+                    "chord":cname,
+                    "shape":shape,
+                    "color":color,
+                    "tonica":tonica,
+                    "notes":chord
+                } ]);
+                */
+                return;
+            }
+        }
+        //(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":[ note ] } ]);
+        return;
     }
     $(document).trigger('emccc:chord'); // undef chord
 }
@@ -222,7 +303,8 @@ const shapeMap = {
   "M7b5":21,
   "Mb6":22,
   "m7#5":23,
-  "7b13":24
+  "7b13":24,
+  "9no5":27
 }
 
 /*
@@ -237,7 +319,7 @@ const shapeMap = {
     • m7
     • M7
 • mMaj7 
-• Maj7
+    • Maj7
     • 7sus4 
     • dim7
     • madd9 
@@ -252,7 +334,7 @@ const shapeMap = {
     • m7#5
     • M7#5 
 • mb6
-• m9no5
+• m9no5 // not recognized
 • M9no5
 • Madd9b5
 • Maj7b5

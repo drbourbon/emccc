@@ -7,7 +7,20 @@
   </head>
   <body class="container-fluid mt-4 d-flex justify-content-center flex-column">
 
-      <div class="form-group mb-2">
+    <!--div class="unsupported jumbotron bg-warning">
+      <h1 class="display-4">Unsupported browser</h1>
+    </div-->
+
+    <div class="keys-disconnected jumbotron bg-dark text-light">
+      <h1 class="display-3">Waiting for midi keyboard connection...</h1>
+    </div>
+
+    <div class="device-disconnected jumbotron">
+      <h1 class="display-3">Waiting for model:cycles connection...</h1>
+    </div>
+
+    <div class="">
+      <div class="form-group mb-2 device-connected">
         <select id="channel" class="custom-select">
           <option selected>Chord Machine MIDI Channel</option>
           <option value="1">1</option>
@@ -16,16 +29,28 @@
           <option value="4">4</option>
           <option value="5">5</option>
           <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
+          <option value="16">16</option>
         </select>        
       </div>
-
       <br>
-    <div class="d-flex justify-content-center">
-      <h1 id="out" class="display-2 col-sm-12"></h1>
-    </div>
-    <br>
-    <div class="d-flex justify-content-center">
-      <h2 id="shape" class="display-4 col-sm-12"></h2>
+      <div class="d-flex justify-content-center">
+        <h1 class="display-2 "><span id="out" class="badge badge-light badge-pill"></span></h1>
+      </div>
+      <br>
+      <div class="d-flex justify-content-center">
+        <h2 id="shape" class="display-4">
+        </h2>
+      </div>
+
     </div>
 
     <!-- Scripts -->
@@ -40,7 +65,10 @@ $(function() {
     if(c){
       $('#out').text(c);
       if(r && r.shape && r.color){
-        $('#shape').text(`shape:${r.shape}, color:${r.color}, note:${r.tonica}`);
+        $('#shape').html(
+          `shape:<span id="shape" class="badge badge-info badge-pill">${r.shape}</span>
+           color:<span id="shape" class="badge badge-secondary badge-pill">${r.color}</span>
+           note:<span id="shape" class="badge badge-dark badge-pill">${r.tonica}</span>`);
       }
     } else {
 //      $('#out').text("");
