@@ -7,16 +7,21 @@ var device = null;
 var emc_channel = 0;
 var last_emc_note = 0;
 
-function sendShapeColor(note, shape, color, channel) {
-//    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color} on Channel ${channel}`);
+function sendShapeColor(note, shape, color, velocity, channel) {
+//    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
     last_emc_note = note;
-    device.sendControlChange(17,shape).sendControlChange(16,color).playNote(note, channel);
+    device.sendControlChange(17,shape,channel)
+        .sendControlChange(16,color, channel)
+        .playNote(note, channel, { velocity:velocity });
 //    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
 }
 
 function sendOff(channel) {
-    if(last_emc_note)
-        device.stopNote(last_emc_note, channel)
+    if(last_emc_note){
+        const n = current_notes.filter(Boolean).length ;
+        if(n==0)
+            device.stopNote(last_emc_note, channel)
+    }
 }
 
 function enableWebMidi() {
@@ -61,14 +66,16 @@ function connectInputs() {
             input.addListener('noteon', "all", function (event) {
                 //console.log(event.note);
                 current_notes[event.note.number] = true;
+                current_notes_velocity[event.note.number] = event.velocity;
                 playedChord(true);
             })
             input.addListener('noteoff', "all", function (event) {
                 //console.log(event.note);
                 current_notes[event.note.number] = false;
+                current_notes_velocity[event.note.number] = 0;
                 playedChord(false);
                 if(emc_channel)
-                    sendOff();
+                    sendOff(emc_channel);
             })            
         }
     }
@@ -133,6 +140,7 @@ function handleConnection(event, state) {
 
 
 var current_notes = new Array(127).fill(false);
+var current_notes_velocity = new Array(127).fill(0);
 var connection_complete = false
 function onConnect() {
     $('#unconnected_message').hide();
@@ -185,8 +193,10 @@ function playedChord(send) {
     const n = current_notes.filter(Boolean).length ;
     if(n>2){
         var chord = [];
+        var velocity = 0;
         for(var i=0; i<current_notes.length; i++){
             if(current_notes[i]){
+                if(velocity==0) velocity = current_notes_velocity[i];
                 chord.push(m.midiToNoteName(i, { sharps: true }));
             }
         }
@@ -226,7 +236,7 @@ function playedChord(send) {
                 tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
 
                 if(emc_channel && shape && color && tonicaCode){
-                    sendShapeColor(tonicaCode, shape-1, color-1, emc_channel);
+                    sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
                     $(document).trigger('emccc:chord',[ cname, {
                         "chord":cname,
                         "shape":shape,
@@ -260,7 +270,7 @@ function playedChord(send) {
             tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
     
             if(emc_channel){
-                sendShapeColor(tonicaCode, shape-1, color-1, emc_channel);
+                sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
                 /*
                 $(document).trigger('emccc:chord',[ cname, {
                     "chord":cname,
