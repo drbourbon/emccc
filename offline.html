@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.min.css">
+
+<style>
+  html {
+    position: relative;
+    min-height: 100%;
+  }
+  body {
+    margin-bottom: 33px; /* Margin bottom by footer height */
+    padding:0;
+  }
+  .footer {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 33px; /* Set the fixed height of the footer here */
+    line-height: 33px; /* Vertically center the text there */
+  }
+
+  #piano-keys {
+    position: absolute;
+    bottom: 33px;
+    left:0;
+    right:0;
+  } 
+
+</style>
+
+  </head>
+  <body>
+
+    <main role="main" class="container-fluid mt-1 d-flex justify-content-center flex-column">
+
+      <div id="piano-keys" class="justify-content-center"></div>
+      <br>
+      <div class="d-flex justify-content-center">
+        <h1 class="display-3"><span id="out" class="badge badge-light badge-pill"></span></h1>
+      </div>
+      <br>
+      <div class="d-flex justify-content-center">
+        <h2 id="shape" class="display-4">
+        </h2>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container text-center">
+        <small>copyright &copy; 2020 <a href="https://neuma.studio">neuma.studio</a> - <a href="/">MIDI version</a></small>
+      </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/node_modules/jquery/dist/jquery.min.js"></script>
+    <script src="/node_modules/nexusui/dist/NexusUI.min.js"></script>
+    <script src="detect.js"></script>
+
+<script>
+const key_width = 18;
+
+$(function() {
+  SetOfflineMode(true);
+
+  var fullWidth = $('body').width();
+  var key_count = Math.floor(fullWidth / key_width);
+  var first_key = key_count<40 ? 60 : 36; // use C4 as "center" for small displays
+  
+  piano = new Nexus.Piano('#piano-keys',{
+      'size': [fullWidth,120],
+      'mode': 'toggle',  // 'button', 'toggle', or 'impulse'
+      'lowNote': first_key,
+      'highNote': first_key+key_count
+  });
+
+  piano.on('change',function(v) {
+      if(v.state === true){
+        playNote(v.note)
+      } else {
+        stopNote(v.note)
+      }
+  })  
+
+  $(document).on("emccc:chord", (e,c,r) => {
+    if(c){
+      $('#out').text(c);
+      if(r && r.shape && r.color){
+        $('#shape').html(
+          `shape:<span id="shape" class="badge badge-info badge-pill">${r.shape}</span>
+           color:<span id="shape" class="badge badge-secondary badge-pill">${r.color}</span>
+           note:<span id="shape" class="badge badge-dark badge-pill">${r.tonica}</span>`);
+      } else {
+        $('#shape').text("");
+      }
+    } else {
+      $('#out').text("");
+      $('#shape').text("");
+    }
+  })
+})
+</script>
+
+  </body>
+</html>

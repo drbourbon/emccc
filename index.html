@@ -1,57 +1,90 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Utility for sequencing chord progressions on elektron model:cycles">
+    <meta name="author" content="Fabio Barbon">
+
     <link rel="stylesheet" href="/node_modules/bootstrap/dist/css/bootstrap.min.css">
+    
+    <style>
+html {
+  position: relative;
+  min-height: 100%;
+}
+body {
+  margin-bottom: 33px; /* Margin bottom by footer height */
+}
+.footer {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  height: 33px; /* Set the fixed height of the footer here */
+  line-height: 33px; /* Vertically center the text there */
+}
+
+    </style>
   </head>
-  <body class="container-fluid mt-4 d-flex justify-content-center flex-column">
+  <body>
 
-    <!--div class="unsupported jumbotron bg-warning">
-      <h1 class="display-4">Unsupported browser</h1>
-    </div-->
+    <main role="main" class="container-fluid mt-4 d-flex justify-content-center flex-column">
 
-    <div class="keys-disconnected jumbotron bg-dark text-light">
-      <h1 class="display-3">Waiting for midi keyboard connection...</h1>
-    </div>
-
-    <div class="device-disconnected jumbotron">
-      <h1 class="display-3">Waiting for model:cycles connection...</h1>
-    </div>
-
-    <div class="">
-      <div class="form-group mb-2 device-connected">
-        <select id="channel" class="custom-select">
-          <option selected>Chord Machine MIDI Channel</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-          <option value="6">6</option>
-          <option value="7">7</option>
-          <option value="8">8</option>
-          <option value="9">9</option>
-          <option value="10">10</option>
-          <option value="11">11</option>
-          <option value="12">12</option>
-          <option value="13">13</option>
-          <option value="14">14</option>
-          <option value="15">15</option>
-          <option value="16">16</option>
-        </select>        
-      </div>
-      <br>
-      <div class="d-flex justify-content-center">
-        <h1 class="display-2 "><span id="out" class="badge badge-light badge-pill"></span></h1>
-      </div>
-      <br>
-      <div class="d-flex justify-content-center">
-        <h2 id="shape" class="display-4">
-        </h2>
+      <div class="unsupported jumbotron bg-warning">
+        <h1 class="display-4">Unsupported browser</h1>
+        You can use the <a class="" href="/offline.html">standalone tool</a>
       </div>
 
-    </div>
+      <div class="supported keys-disconnected jumbotron bg-dark text-light">
+        <h1 class="display-4">Waiting for midi keyboard connection...</h1>
+      </div>
+
+      <div class="supported device-disconnected jumbotron">
+        <h1 class="display-4">Waiting for model:cycles connection...</h1>
+      </div>
+
+      <div class="">
+        <div class="form-group mb-2 device-connected">
+          <select id="channel" class="custom-select">
+            <option selected>Chord Machine MIDI Channel</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+          </select>        
+        </div>
+        <br>
+        <div class="d-flex justify-content-center">
+          <h1 class="display-2 "><span id="out" class="badge badge-light badge-pill"></span></h1>
+        </div>
+        <br>
+        <div class="d-flex justify-content-center">
+          <h2 id="shape" class="display-4">
+          </h2>
+        </div>
+
+      </div>
+
+    </main>
+    
+
+    <footer class="footer">
+      <div class="container text-center">
+        <small>copyright &copy; 2020 <a href="https://neuma.studio">neuma.studio</a></small>
+      </div>
+    </footer>
 
     <!-- Scripts -->
     <script src="/node_modules/jquery/dist/jquery.min.js"></script>
@@ -61,6 +94,7 @@
 <script>
 $(function() {
   enableWebMidi(); 
+
   $(document).on("emccc:chord", (e,c,r) => {
     if(c){
       $('#out').text(c);

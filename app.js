@@ -6,6 +6,7 @@ const WebMidi = require("webmidi");
 var device = null;
 var emc_channel = 0;
 var last_emc_note = 0;
+var offline_mode = false;
 
 function sendShapeColor(note, shape, color, velocity, channel) {
 //    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
@@ -33,8 +34,9 @@ function enableWebMidi() {
             $('#connection-info').hide();
             $('.device-connected').hide();
             $('.unsupported').show();
-
-            return;
+            $('.supported').hide();
+            offline_mode = true;
+            return false;
         }
 
         $('.unsupported').hide();
@@ -48,6 +50,20 @@ function enableWebMidi() {
         onDisconnect();
         disconnectInputs();
     }, sysex=false);    
+}
+
+function playNote(note){
+//    console.log(note);
+    current_notes[note] = true;
+    current_notes_velocity[note] = 0.5;
+    playedChord(true);
+}
+
+function stopNote(note){
+//    console.log(note);
+    current_notes[note] = false;
+    current_notes_velocity[note] = 0.0;
+    playedChord(false);
 }
 
 function isModelCycles(s){
@@ -64,16 +80,20 @@ function connectInputs() {
             input = WebMidi.inputs[i];
             input.removeListener();
             input.addListener('noteon', "all", function (event) {
-                //console.log(event.note);
+                playNote(event.note.number);
+                /*
                 current_notes[event.note.number] = true;
                 current_notes_velocity[event.note.number] = event.velocity;
                 playedChord(true);
+                */
             })
             input.addListener('noteoff', "all", function (event) {
-                //console.log(event.note);
+                stopNote(event.note.number);
+                /*
                 current_notes[event.note.number] = false;
                 current_notes_velocity[event.note.number] = 0;
                 playedChord(false);
+                */
                 if(emc_channel)
                     sendOff(emc_channel);
             })            
@@ -112,30 +132,6 @@ function handleConnection(event, state) {
             disconnectInputs();
         }
     }
-    /*
-    if(state===true){
-        device = WebMidi.outputs[i];
-
-        for (var i = 0; i < WebMidi.outputs.length; i++) {
-//            console.log('Output', WebMidi.outputs[i].name, WebMidi.outputs[i]);
-    
-            if (isModelCycles(WebMidi.outputs[i])) {
-                device = WebMidi.outputs[i];
-                break;
-            }
-        }
-
-        if(device)
-            onConnect();
-        else
-            onDisconnect();
-
-        connectInputs()
-        
-    } else {
-        onDisconnect();
-    }
-    */
 }
 
 
@@ -200,9 +196,9 @@ function playedChord(send) {
                 chord.push(m.midiToNoteName(i, { sharps: true }));
             }
         }
-        //console.log(chord);
+//        console.log(chord);
         const name = c.detect(chord);
-        //console.log(name);
+//        console.log(name);
         if(name.length>0){
             const cname = soloTipo(name[0])=='m#5' && name.length>1 ? name[1] : name[0]; // TODO others
 
@@ -223,7 +219,7 @@ function playedChord(send) {
             }
 
             // convert chord to EMC engine shape
-            if(send){
+            if(send || offline_mode){
                 const chordType = soloTipo(base);
                 const shape = shapeMap[chordType];
                 const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto = 2 ? 74 : 84));
@@ -235,8 +231,9 @@ function playedChord(send) {
 
                 tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
 
-                if(emc_channel && shape && color && tonicaCode){
-                    sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
+                if((emc_channel||offline_mode) && shape && color && tonicaCode){
+                    if(!offline_mode)
+                        sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
                     $(document).trigger('emccc:chord',[ cname, {
                         "chord":cname,
                         "shape":shape,
@@ -248,7 +245,8 @@ function playedChord(send) {
                 }
             }
 
-            //$(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
+            if(offline_mode)
+                $(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
             return;
         }
     } else if (false /*n==1*/) {
@@ -366,5 +364,14 @@ if (typeof window !== 'undefined') {
     }
     window.enableWebMidi = function() {
         return enableWebMidi();
+    }
+    window.playNote = function(s) {
+        return playNote(s);
+    }
+    window.stopNote = function(s) {
+        return stopNote(s);
+    }
+    window.SetOfflineMode = function(m) {
+        offline_mode = m;
     }
 }
