@@ -13,6 +13,7 @@
     "@tonaljs/chord-detect": "^3.5.1",
     "@tonaljs/midi": "^3.5.0",
     "@tonaljs/pcset": "^3.5.0",
+    "@tonaljs/tonal": "^3.6.0",
     "bootstrap": "^4.4.1",
     "jquery": "^3.4.1",
     "nexusui": "^2.0.13",

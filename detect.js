@@ -1,29 +1,49 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
-const p = require("@tonaljs/pcset")
+//const p = require("@tonaljs/pcset")
 const c = require("@tonaljs/chord")
 const m = require("@tonaljs/midi")
+const { Interval } = require("@tonaljs/tonal");
 const WebMidi = require("webmidi");
 
 var device = null;
 var emc_channel = 0;
 var last_emc_note = 0;
+var last_emc_shape = 0;
+var last_emc_color = 0;
 var offline_mode = false;
 
 function sendShapeColor(note, shape, color, velocity, channel) {
-//    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
+    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
     last_emc_note = note;
-    device.sendControlChange(17,shape,channel)
+    last_emc_shape = shape;
+    last_emc_color = color;
+    if(device){
+        device
         .sendControlChange(16,color, channel)
+        .sendControlChange(17,shape,channel)
         .playNote(note, channel, { velocity:velocity });
 //    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
+
+    }
 }
 
 function sendOff(channel) {
-    if(last_emc_note){
+    if(last_emc_note && device){
         const n = current_notes.filter(Boolean).length ;
-        if(n==0)
+        if(n==0){
+            console.log(`Sending Note Off:${last_emc_note}`);
             device.stopNote(last_emc_note, channel)
+        }
     }
+}
+
+function sendShape() {
+    if(device && emc_channel && last_emc_shape) device.sendControlChange(17,last_emc_shape,emc_channel);
+}
+
+function sendNote() {
+    if(device && emc_channel && last_emc_note)
+        device.playNote(last_emc_note, emc_channel, { duration:660 });
 }
 
 function enableWebMidi() {
@@ -151,11 +171,13 @@ function onConnect() {
     $('.device-disabled').addClass('disabled');
     
     connection_complete = true;
+    offline_mode = false;
     console.log('Connection established');
 }
 
 function onDisconnect() {
     device = null;
+    offline_mode = true;
 
     // app level 
     $('#unconnected_message').show();
@@ -177,7 +199,7 @@ function onDisconnect() {
 }
 
 function soloNota(s) {
-    if(s[1]=='b' || s[1]=='#') return s.substring(0,1);
+    if(s[1]=='b' || s[1]=='#') return s.substring(0,2);
     return s[0];
 }
 
@@ -186,18 +208,24 @@ function soloTipo(s) {
     return s.substring(1);
 }
 
+function tonicaToString(s) {
+    return s.slice(0,-1) + ((s[1]=='b' || s[1]=='#') ? "":"-") + (parseInt(s.slice(-1))+1) // trick
+}
+
 function playedChord(send) {
     const n = current_notes.filter(Boolean).length ;
-    if(n>2){
-        var chord = [];
-        var velocity = 0;
-        for(var i=0; i<current_notes.length; i++){
-            if(current_notes[i]){
-                if(velocity==0) velocity = current_notes_velocity[i];
-                chord.push(m.midiToNoteName(i, { sharps: true }));
-            }
+
+    var chord = [];
+    var velocity = 0;
+    for(var i=0; i<current_notes.length; i++){
+        if(current_notes[i]){
+            if(velocity==0) velocity = current_notes_velocity[i];
+            chord.push(m.midiToNoteName(i, { sharps: true }));
         }
+    }
 //        console.log(chord);
+
+    if(n>2){
         const name = c.detect(chord);
 //        console.log(name);
         if(name.length>0){
@@ -211,10 +239,12 @@ function playedChord(send) {
                 rivolto = 0;
             } else {
                 switch(n){
-                    case 3: rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; break;
-                    case 4: rivolto = soloNota(chord[1])==baseSoloNota ? 1 : 
-                        soloNota(chord[2])==baseSoloNota ? 2 : 3; 
-                        break
+                    case 3: 
+                        rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; 
+                        break;
+                    case 4: rivolto = soloNota(chord[3])==baseSoloNota ? 1 : 
+                        (soloNota(chord[2])==baseSoloNota ? 2 : 3); 
+                        break;
                     default: rivolto = 0; break;
                 }
             }
@@ -223,23 +253,21 @@ function playedChord(send) {
             if(send || offline_mode){
                 const chordType = soloTipo(base);
                 const shape = shapeMap[chordType];
-                const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto = 2 ? 74 : 84));
+                const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto == 2 ? 74 : 84));
                 var tonica = soloNota(chord[0])==baseSoloNota ? chord[0] : 
                     (soloNota(chord[1])==baseSoloNota ? chord[1] :
                         (soloNota(chord[2])==baseSoloNota ? chord[2] : chord[3]));
     
                 const tonicaCode = m.toMidi(tonica);
 
-                tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
-
                 if((emc_channel||offline_mode) && shape && color && tonicaCode){
                     if(!offline_mode)
-                        sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
+                        sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
                     $(document).trigger('emccc:chord',[ cname, {
                         "chord":cname,
                         "shape":shape,
                         "color":color,
-                        "tonica":tonica,
+                        "tonica":tonicaToString(tonica),
                         "notes":chord
                     } ]);
                     return;
@@ -250,7 +278,7 @@ function playedChord(send) {
                 $(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
             return;
         }
-    } else if (false /*n==1*/) {
+    } else if (n==1) {
         var note = 0;
         for(var i=0; i<current_notes.length; i++){
             if(current_notes[i]){
@@ -260,29 +288,49 @@ function playedChord(send) {
         }
         const cname = soloNota(note);
 
-        if(send){
+        if(send || offline_mode){
             const shape = 1;
-            const color = 1; // detune
+            const color = 0; 
             var tonica = note;
             const tonicaCode = m.toMidi(tonica);
     
-            tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
-    
-            if(emc_channel){
-                sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
-                /*
+            if(emc_channel || offline_mode){
+                if(!offline_mode)
+                    sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
                 $(document).trigger('emccc:chord',[ cname, {
                     "chord":cname,
                     "shape":shape,
                     "color":color,
-                    "tonica":tonica,
+                    "tonica":tonicaToString(tonica),
                     "notes":chord
                 } ]);
-                */
                 return;
             }
         }
         //(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":[ note ] } ]);
+        return;
+    } else if (n==2) {
+        var interval = Interval.distance(chord[0],chord[1]);
+        interval = Interval.simplify(interval);
+        const semitones = Interval.semitones(interval);
+        console.log(chord);
+        // custom Elektron rules
+        var color, shape, tonica;
+        switch(semitones){
+            case 3: color = 10; shape = 4; tonica=tonicaToString(chord[0]); break; // minor third from m
+            case 4: color = 10; shape = 5; tonica=tonicaToString(chord[0]); break; // major third from M
+            default: color = 0; shape = 1; tonica=null; break; // revert to single note on boh
+        }
+        const cname = soloNota(chord[0]) + "-" + soloNota(chord[1]);
+        if(offline_mode){
+            $(document).trigger('emccc:chord',[ cname, {
+                "chord":cname,
+                "shape":shape,
+                "color":color,
+                "tonica":tonica,
+                "notes":chord
+            } ]);
+        }
         return;
     }
     $(document).trigger('emccc:chord'); // undef chord
@@ -375,9 +423,262 @@ if (typeof window !== 'undefined') {
     window.SetOfflineMode = function(m) {
         offline_mode = m;
     }
+    window.sendShape = function() {
+        sendShape();
+    }
+    window.sendNote = function() {
+        sendNote();
+    }
 }
 
-},{"@tonaljs/chord":4,"@tonaljs/midi":7,"@tonaljs/pcset":8,"webmidi":10}],2:[function(require,module,exports){
+},{"@tonaljs/chord":6,"@tonaljs/midi":12,"@tonaljs/tonal":21,"webmidi":22}],2:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
+  (global = global || self, factory(global.AbcNotation = {}, global.core));
+}(this, (function (exports, core) { 'use strict';
+
+  var fillStr = function (character, times) {
+      return Array(times + 1).join(character);
+  };
+  var REGEX = /^(_{1,}|=|\^{1,}|)([abcdefgABCDEFG])([,']*)$/;
+  function tokenize(str) {
+      var m = REGEX.exec(str);
+      if (!m) {
+          return ["", "", ""];
+      }
+      return [m[1], m[2], m[3]];
+  }
+  /**
+   * Convert a (string) note in ABC notation into a (string) note in scientific notation
+   *
+   * @example
+   * abcToScientificNotation("c") // => "C5"
+   */
+  function abcToScientificNotation(str) {
+      var _a = tokenize(str), acc = _a[0], letter = _a[1], oct = _a[2];
+      if (letter === "") {
+          return "";
+      }
+      var o = 4;
+      for (var i = 0; i < oct.length; i++) {
+          o += oct.charAt(i) === "," ? -1 : 1;
+      }
+      var a = acc[0] === "_"
+          ? acc.replace(/_/g, "b")
+          : acc[0] === "^"
+              ? acc.replace(/\^/g, "#")
+              : "";
+      return letter.charCodeAt(0) > 96
+          ? letter.toUpperCase() + a + (o + 1)
+          : letter + a + o;
+  }
+  /**
+   * Convert a (string) note in scientific notation into a (string) note in ABC notation
+   *
+   * @example
+   * scientificToAbcNotation("C#4") // => "^C"
+   */
+  function scientificToAbcNotation(str) {
+      var n = core.note(str);
+      if (n.empty || !n.oct) {
+          return "";
+      }
+      var letter = n.letter, acc = n.acc, oct = n.oct;
+      var a = acc[0] === "b" ? acc.replace(/b/g, "_") : acc.replace(/#/g, "^");
+      var l = oct > 4 ? letter.toLowerCase() : letter;
+      var o = oct === 5 ? "" : oct > 4 ? fillStr("'", oct - 5) : fillStr(",", 4 - oct);
+      return a + l + o;
+  }
+  function transpose(note, interval) {
+      return scientificToAbcNotation(core.transpose(abcToScientificNotation(note), interval));
+  }
+  function distance(from, to) {
+      return core.distance(abcToScientificNotation(from), abcToScientificNotation(to));
+  }
+  var index = {
+      abcToScientificNotation: abcToScientificNotation,
+      scientificToAbcNotation: scientificToAbcNotation,
+      tokenize: tokenize,
+      transpose: transpose,
+      distance: distance
+  };
+
+  exports.abcToScientificNotation = abcToScientificNotation;
+  exports.default = index;
+  exports.distance = distance;
+  exports.scientificToAbcNotation = scientificToAbcNotation;
+  exports.tokenize = tokenize;
+  exports.transpose = transpose;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8}],3:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
+  (global = global || self, factory(global.Array = {}, global.core));
+}(this, (function (exports, core) { 'use strict';
+
+  // ascending range
+  function ascR(b, n) {
+      var a = [];
+      // tslint:disable-next-line:curly
+      for (; n--; a[n] = n + b)
+          ;
+      return a;
+  }
+  // descending range
+  function descR(b, n) {
+      var a = [];
+      // tslint:disable-next-line:curly
+      for (; n--; a[n] = b - n)
+          ;
+      return a;
+  }
+  /**
+   * Creates a numeric range
+   *
+   * @param {number} from
+   * @param {number} to
+   * @return {Array<number>}
+   *
+   * @example
+   * range(-2, 2) // => [-2, -1, 0, 1, 2]
+   * range(2, -2) // => [2, 1, 0, -1, -2]
+   */
+  function range(from, to) {
+      return from < to ? ascR(from, to - from + 1) : descR(from, from - to + 1);
+  }
+  /**
+   * Rotates a list a number of times. It"s completly agnostic about the
+   * contents of the list.
+   *
+   * @param {Integer} times - the number of rotations
+   * @param {Array} array
+   * @return {Array} the rotated array
+   *
+   * @example
+   * rotate(1, [1, 2, 3]) // => [2, 3, 1]
+   */
+  function rotate(times, arr) {
+      var len = arr.length;
+      var n = ((times % len) + len) % len;
+      return arr.slice(n, len).concat(arr.slice(0, n));
+  }
+  /**
+   * Return a copy of the array with the null values removed
+   * @function
+   * @param {Array} array
+   * @return {Array}
+   *
+   * @example
+   * compact(["a", "b", null, "c"]) // => ["a", "b", "c"]
+   */
+  function compact(arr) {
+      return arr.filter(function (n) { return n === 0 || n; });
+  }
+  /**
+   * Sort an array of notes in ascending order. Pitch classes are listed
+   * before notes. Any string that is not a note is removed.
+   *
+   * @param {string[]} notes
+   * @return {string[]} sorted array of notes
+   *
+   * @example
+   * sortedNoteNames(['c2', 'c5', 'c1', 'c0', 'c6', 'c'])
+   * // => ['C', 'C0', 'C1', 'C2', 'C5', 'C6']
+   * sortedNoteNames(['c', 'F', 'G', 'a', 'b', 'h', 'J'])
+   * // => ['C', 'F', 'G', 'A', 'B']
+   */
+  function sortedNoteNames(notes) {
+      var valid = notes.map(function (n) { return core.note(n); }).filter(function (n) { return !n.empty; });
+      return valid.sort(function (a, b) { return a.height - b.height; }).map(function (n) { return n.name; });
+  }
+  /**
+   * Get sorted notes with duplicates removed. Pitch classes are listed
+   * before notes.
+   *
+   * @function
+   * @param {string[]} array
+   * @return {string[]} unique sorted notes
+   *
+   * @example
+   * Array.sortedUniqNoteNames(['a', 'b', 'c2', '1p', 'p2', 'c2', 'b', 'c', 'c3' ])
+   * // => [ 'C', 'A', 'B', 'C2', 'C3' ]
+   */
+  function sortedUniqNoteNames(arr) {
+      return sortedNoteNames(arr).filter(function (n, i, a) { return i === 0 || n !== a[i - 1]; });
+  }
+  /**
+   * Randomizes the order of the specified array in-place, using the Fisher–Yates shuffle.
+   *
+   * @function
+   * @param {Array} array
+   * @return {Array} the array shuffled
+   *
+   * @example
+   * shuffle(["C", "D", "E", "F"]) // => [...]
+   */
+  function shuffle(arr, rnd) {
+      if (rnd === void 0) { rnd = Math.random; }
+      var i;
+      var t;
+      var m = arr.length;
+      while (m) {
+          i = Math.floor(rnd() * m--);
+          t = arr[m];
+          arr[m] = arr[i];
+          arr[i] = t;
+      }
+      return arr;
+  }
+  /**
+   * Get all permutations of an array
+   *
+   * @param {Array} array - the array
+   * @return {Array<Array>} an array with all the permutations
+   * @example
+   * permutations(["a", "b", "c"])) // =>
+   * [
+   *   ["a", "b", "c"],
+   *   ["b", "a", "c"],
+   *   ["b", "c", "a"],
+   *   ["a", "c", "b"],
+   *   ["c", "a", "b"],
+   *   ["c", "b", "a"]
+   * ]
+   */
+  function permutations(arr) {
+      if (arr.length === 0) {
+          return [[]];
+      }
+      return permutations(arr.slice(1)).reduce(function (acc, perm) {
+          return acc.concat(arr.map(function (e, pos) {
+              var newPerm = perm.slice();
+              newPerm.splice(pos, 0, arr[0]);
+              return newPerm;
+          }));
+      }, []);
+  }
+
+  exports.compact = compact;
+  exports.permutations = permutations;
+  exports.range = range;
+  exports.rotate = rotate;
+  exports.shuffle = shuffle;
+  exports.sortedNoteNames = sortedNoteNames;
+  exports.sortedUniqNoteNames = sortedUniqNoteNames;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8}],4:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/chord-type'), require('@tonaljs/core'), require('@tonaljs/pcset')) :
   typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/chord-type', '@tonaljs/core', '@tonaljs/pcset'], factory) :
@@ -437,7 +738,7 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/chord-type":3,"@tonaljs/core":6,"@tonaljs/pcset":8}],3:[function(require,module,exports){
+},{"@tonaljs/chord-type":5,"@tonaljs/core":8,"@tonaljs/pcset":15}],5:[function(require,module,exports){
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core'), require('@tonaljs/pcset')) :
     typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core', '@tonaljs/pcset'], factory) :
@@ -712,7 +1013,7 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/core":6,"@tonaljs/pcset":8}],4:[function(require,module,exports){
+},{"@tonaljs/core":8,"@tonaljs/pcset":15}],6:[function(require,module,exports){
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/chord-detect'), require('@tonaljs/chord-type'), require('@tonaljs/core'), require('@tonaljs/pcset'), require('@tonaljs/scale-type')) :
     typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/chord-detect', '@tonaljs/chord-type', '@tonaljs/core', '@tonaljs/pcset', '@tonaljs/scale-type'], factory) :
@@ -920,7 +1221,7 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/chord-detect":2,"@tonaljs/chord-type":3,"@tonaljs/core":6,"@tonaljs/pcset":8,"@tonaljs/scale-type":9}],5:[function(require,module,exports){
+},{"@tonaljs/chord-detect":4,"@tonaljs/chord-type":5,"@tonaljs/core":8,"@tonaljs/pcset":15,"@tonaljs/scale-type":19}],7:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -1056,7 +1357,7 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{}],6:[function(require,module,exports){
+},{}],8:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
@@ -1428,7 +1729,456 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{}],7:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
+(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
+    typeof define === 'function' && define.amd ? define(['exports'], factory) :
+    (global = global || self, factory(global.DurationValue = {}));
+}(this, (function (exports) { 'use strict';
+
+    /*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */
+
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
+    // source: https://en.wikipedia.org/wiki/Note_value
+    var DATA = [
+        [
+            0.125,
+            "dl",
+            ["large", "duplex longa", "maxima", "octuple", "octuple whole"]
+        ],
+        [0.25, "l", ["long", "longa"]],
+        [0.5, "d", ["double whole", "double", "breve"]],
+        [1, "w", ["whole", "semibreve"]],
+        [2, "h", ["half", "minim"]],
+        [4, "q", ["quarter", "crotchet"]],
+        [8, "e", ["eighth", "quaver"]],
+        [16, "s", ["sixteenth", "semiquaver"]],
+        [32, "t", ["thirty-second", "demisemiquaver"]],
+        [64, "sf", ["sixty-fourth", "hemidemisemiquaver"]],
+        [128, "h", ["hundred twenty-eighth"]],
+        [256, "th", ["two hundred fifty-sixth"]]
+    ];
+
+    var VALUES = [];
+    DATA.forEach(function (_a) {
+        var denominator = _a[0], shorthand = _a[1], names = _a[2];
+        return add(denominator, shorthand, names);
+    });
+    var NoDuration = {
+        empty: true,
+        name: "",
+        value: 0,
+        fraction: [0, 0],
+        shorthand: "",
+        dots: "",
+        names: []
+    };
+    function names() {
+        return VALUES.reduce(function (names, duration) {
+            duration.names.forEach(function (name) { return names.push(name); });
+            return names;
+        }, []);
+    }
+    function shorthands() {
+        return VALUES.map(function (dur) { return dur.shorthand; });
+    }
+    var REGEX = /^([^.]+)(\.*)$/;
+    function get(name) {
+        var _a = REGEX.exec(name) || [], _ = _a[0], simple = _a[1], dots = _a[2];
+        var base = VALUES.find(function (dur) { return dur.shorthand === simple || dur.names.includes(simple); });
+        if (!base) {
+            return NoDuration;
+        }
+        var fraction = calcDots(base.fraction, dots.length);
+        var value = fraction[0] / fraction[1];
+        return __assign(__assign({}, base), { name: name, dots: dots, value: value, fraction: fraction });
+    }
+    var value = function (name) { return get(name).value; };
+    var fraction = function (name) { return get(name).fraction; };
+    var index = { names: names, shorthands: shorthands, get: get, value: value, fraction: fraction };
+    //// PRIVATE ////
+    function add(denominator, shorthand, names) {
+        VALUES.push({
+            empty: false,
+            dots: "",
+            name: "",
+            value: 1 / denominator,
+            fraction: denominator < 1 ? [1 / denominator, 1] : [1, denominator],
+            shorthand: shorthand,
+            names: names
+        });
+    }
+    function calcDots(fraction, dots) {
+        var pow = Math.pow(2, dots);
+        var numerator = fraction[0] * pow;
+        var denominator = fraction[1] * pow;
+        var base = numerator;
+        // add fractions
+        for (var i = 0; i < dots; i++) {
+            numerator += base / Math.pow(2, i + 1);
+        }
+        // simplify
+        while (numerator % 2 === 0 && denominator % 2 === 0) {
+            numerator /= 2;
+            denominator /= 2;
+        }
+        return [numerator, denominator];
+    }
+
+    exports.default = index;
+    exports.fraction = fraction;
+    exports.get = get;
+    exports.names = names;
+    exports.shorthands = shorthands;
+    exports.value = value;
+
+    Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{}],10:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
+  (global = global || self, factory(global.Interval = {}, global.core));
+}(this, (function (exports, core) { 'use strict';
+
+  /**
+   * Get the natural list of names
+   */
+  function names() {
+      return "1P 2M 3M 4P 5P 6m 7m".split(" ");
+  }
+  /**
+   * Get properties of an interval
+   *
+   * @function
+   * @example
+   * Interval.get('P4') // => {"alt": 0,  "dir": 1,  "name": "4P", "num": 4, "oct": 0, "q": "P", "semitones": 5, "simple": 4, "step": 3, "type": "perfectable"}
+   */
+  var get = core.interval;
+  /**
+   * Get name of an interval
+   *
+   * @function
+   * @example
+   * Interval.name('4P') // => "4P"
+   * Interval.name('P4') // => "4P"
+   * Interval.name('C4') // => ""
+   */
+  var name = function (name) { return core.interval(name).name; };
+  /**
+   * Get semitones of an interval
+   * @function
+   * @example
+   * Interval.semitones('P4') // => 5
+   */
+  var semitones = function (name) { return core.interval(name).semitones; };
+  /**
+   * Get quality of an interval
+   * @function
+   * @example
+   * Interval.quality('P4') // => "P"
+   */
+  var quality = function (name) { return core.interval(name).q; };
+  /**
+   * Get number of an interval
+   * @function
+   * @example
+   * Interval.num('P4') // => 4
+   */
+  var num = function (name) { return core.interval(name).num; };
+  /**
+   * Get the simplified version of an interval.
+   *
+   * @function
+   * @param {string} interval - the interval to simplify
+   * @return {string} the simplified interval
+   *
+   * @example
+   * Interval.simplify("9M") // => "2M"
+   * Interval.simplify("2M") // => "2M"
+   * Interval.simplify("-2M") // => "7m"
+   * ["8P", "9M", "10M", "11P", "12P", "13M", "14M", "15P"].map(Interval.simplify)
+   * // => [ "8P", "2M", "3M", "4P", "5P", "6M", "7M", "8P" ]
+   */
+  function simplify(name) {
+      var i = core.interval(name);
+      return i.empty ? "" : i.simple + i.q;
+  }
+  /**
+   * Get the inversion (https://en.wikipedia.org/wiki/Inversion_(music)#Intervals)
+   * of an interval.
+   *
+   * @function
+   * @param {string} interval - the interval to invert in interval shorthand
+   * notation or interval array notation
+   * @return {string} the inverted interval
+   *
+   * @example
+   * Interval.invert("3m") // => "6M"
+   * Interval.invert("2M") // => "7m"
+   */
+  function invert(name) {
+      var i = core.interval(name);
+      if (i.empty) {
+          return "";
+      }
+      var step = (7 - i.step) % 7;
+      var alt = i.type === "perfectable" ? -i.alt : -(i.alt + 1);
+      return core.interval({ step: step, alt: alt, oct: i.oct, dir: i.dir }).name;
+  }
+  // interval numbers
+  var IN = [1, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7, 7];
+  // interval qualities
+  var IQ = "P m M m M P d P m M m M".split(" ");
+  /**
+   * Get interval name from semitones number. Since there are several interval
+   * names for the same number, the name it's arbitrary, but deterministic.
+   *
+   * @param {Integer} num - the number of semitones (can be negative)
+   * @return {string} the interval name
+   * @example
+   * Interval.fromSemitones(7) // => "5P"
+   * Interval.fromSemitones(-7) // => "-5P"
+   */
+  function fromSemitones(semitones) {
+      var d = semitones < 0 ? -1 : 1;
+      var n = Math.abs(semitones);
+      var c = n % 12;
+      var o = Math.floor(n / 12);
+      return d * (IN[c] + 7 * o) + IQ[c];
+  }
+  /**
+   * Find interval between two notes
+   *
+   * @example
+   * Interval.distance("C4", "G4"); // => "5P"
+   */
+  var distance = core.distance;
+  /**
+   * Adds two intervals
+   *
+   * @function
+   * @param {string} interval1
+   * @param {string} interval2
+   * @return {string} the added interval name
+   * @example
+   * Interval.add("3m", "5P") // => "7m"
+   */
+  var add = combinator(function (a, b) { return [a[0] + b[0], a[1] + b[1]]; });
+  /**
+   * Returns a function that adds an interval
+   *
+   * @function
+   * @example
+   * ['1P', '2M', '3M'].map(Interval.addTo('5P')) // => ["5P", "6M", "7M"]
+   */
+  var addTo = function (interval) { return function (other) {
+      return add(interval, other);
+  }; };
+  /**
+   * Subtracts two intervals
+   *
+   * @function
+   * @param {string} minuendInterval
+   * @param {string} subtrahendInterval
+   * @return {string} the substracted interval name
+   * @example
+   * Interval.substract('5P', '3M') // => '3m'
+   * Interval.substract('3M', '5P') // => '-3m'
+   */
+  var substract = combinator(function (a, b) { return [a[0] - b[0], a[1] - b[1]]; });
+  var index = {
+      names: names,
+      get: get,
+      name: name,
+      num: num,
+      semitones: semitones,
+      quality: quality,
+      fromSemitones: fromSemitones,
+      distance: distance,
+      invert: invert,
+      simplify: simplify,
+      add: add,
+      addTo: addTo,
+      substract: substract
+  };
+  function combinator(fn) {
+      return function (a, b) {
+          var coordA = core.interval(a).coord;
+          var coordB = core.interval(b).coord;
+          if (coordA && coordB) {
+              var coord = fn(coordA, coordB);
+              return core.coordToInterval(coord).name;
+          }
+      };
+  }
+
+  exports.add = add;
+  exports.addTo = addTo;
+  exports.default = index;
+  exports.distance = distance;
+  exports.fromSemitones = fromSemitones;
+  exports.get = get;
+  exports.invert = invert;
+  exports.name = name;
+  exports.names = names;
+  exports.num = num;
+  exports.quality = quality;
+  exports.semitones = semitones;
+  exports.simplify = simplify;
+  exports.substract = substract;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8}],11:[function(require,module,exports){
+(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core'), require('@tonaljs/note'), require('@tonaljs/roman-numeral')) :
+    typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core', '@tonaljs/note', '@tonaljs/roman-numeral'], factory) :
+    (global = global || self, factory(global.Key = {}, global.core, global.note, global.romanNumeral));
+}(this, (function (exports, core, note, romanNumeral) { 'use strict';
+
+    /*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */
+
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
+    var mapToScale = function (scale) { return function (symbols, sep) {
+        if (sep === void 0) { sep = ""; }
+        return symbols.map(function (symbol, index) {
+            return symbol !== "-" ? scale[index] + sep + symbol : "";
+        });
+    }; };
+    function keyScale(gradesLiteral, chordsLiteral, hfLiteral, chordScalesLiteral) {
+        return function (tonic) {
+            var grades = gradesLiteral.split(" ");
+            var intervals = grades.map(function (gr) { return romanNumeral.get(gr).interval || ""; });
+            var scale = intervals.map(function (interval) { return core.transpose(tonic, interval); });
+            var map = mapToScale(scale);
+            return {
+                tonic: tonic,
+                grades: grades,
+                intervals: intervals,
+                scale: scale,
+                chords: map(chordsLiteral.split(" ")),
+                chordsHarmonicFunction: hfLiteral.split(" "),
+                chordScales: map(chordScalesLiteral.split(","), " ")
+            };
+        };
+    }
+    var distInFifths = function (from, to) {
+        var f = core.note(from);
+        var t = core.note(to);
+        return f.empty || t.empty ? 0 : t.coord[0] - f.coord[0];
+    };
+    var MajorScale = keyScale("I II III IV V VI VII", "maj7 m7 m7 maj7 7 m7 m7b5", "T SD T SD D T D", "major,dorian,phrygian,lydian,mixolydian,minor,locrian");
+    var NaturalScale = keyScale("I II bIII IV V bVI bVII", "m7 m7b5 maj7 m7 m7 maj7 7", "T SD T SD D SD SD", "minor,locrian,major,dorian,phrygian,lydian,mixolydian");
+    var HarmonicScale = keyScale("I II bIII IV V bVI VII", "mmaj7 m7b5 +maj7 m7 7 maj7 mo7", "T SD T SD D SD D", "harmonic minor,locrian 6,major augmented,lydian diminished,phrygian dominant,lydian #9,ultralocrian");
+    var MelodicScale = keyScale("I II bIII IV V VI VII", "m6 m7 +maj7 7 7 m7b5 m7b5", "T SD T SD D - -", "melodic minor,dorian b2,lydian augmented,lydian dominant,mixolydian b6,locrian #2,altered");
+    /**
+     * Get a major key properties in a given tonic
+     * @param tonic
+     */
+    function majorKey(tonic) {
+        var keyScale = MajorScale(tonic);
+        var alteration = distInFifths("C", tonic);
+        var map = mapToScale(keyScale.scale);
+        return __assign(__assign({}, keyScale), { type: "major", minorRelative: core.transpose(tonic, "-3m"), alteration: alteration, keySignature: core.altToAcc(alteration), secondaryDominants: map("- VI7 VII7 I7 II7 III7 -".split(" ")), secondaryDominantsMinorRelative: map("- IIIm7b5 IV#m7 Vm7 VIm7 VIIm7b5 -".split(" ")), substituteDominants: map("- bIII7 IV7 bV7 bVI7 bVII7 -".split(" ")), substituteDominantsMinorRelative: map("- IIIm7 Im7 IIbm7 VIm7 IVm7 -".split(" ")) });
+    }
+    /**
+     * Get minor key properties in a given tonic
+     * @param tonic
+     */
+    function minorKey(tonic) {
+        var alteration = distInFifths("C", tonic) - 3;
+        return {
+            type: "minor",
+            tonic: tonic,
+            relativeMajor: core.transpose(tonic, "3m"),
+            alteration: alteration,
+            keySignature: core.altToAcc(alteration),
+            natural: NaturalScale(tonic),
+            harmonic: HarmonicScale(tonic),
+            melodic: MelodicScale(tonic)
+        };
+    }
+    /**
+     * Given a key signature, returns the tonic of the major key
+     * @param sigature
+     * @example
+     * majorTonicFromKeySignature('###') // => 'A'
+     */
+    function majorTonicFromKeySignature(sig) {
+        if (typeof sig === "number") {
+            return note.transposeFifths("C", sig);
+        }
+        else if (typeof sig === "string" && /^b+|#+$/.test(sig)) {
+            return note.transposeFifths("C", core.accToAlt(sig));
+        }
+        return null;
+    }
+    var index = { majorKey: majorKey, majorTonicFromKeySignature: majorTonicFromKeySignature, minorKey: minorKey };
+
+    exports.default = index;
+    exports.majorKey = majorKey;
+    exports.majorTonicFromKeySignature = majorTonicFromKeySignature;
+    exports.minorKey = minorKey;
+
+    Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8,"@tonaljs/note":14,"@tonaljs/roman-numeral":18}],12:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
   typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
@@ -1536,7 +2286,398 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/core":6}],8:[function(require,module,exports){
+},{"@tonaljs/core":8}],13:[function(require,module,exports){
+(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core'), require('@tonaljs/pcset')) :
+    typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core', '@tonaljs/pcset'], factory) :
+    (global = global || self, factory(global.Mode = {}, global.core, global.pcset));
+}(this, (function (exports, core, pcset) { 'use strict';
+
+    /*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */
+
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
+    var DATA = [
+        [0, 2773, 0, "ionian", "", "Maj7", "major"],
+        [1, 2902, 2, "dorian", "m", "m7"],
+        [2, 3418, 4, "phrygian", "m", "m7"],
+        [3, 2741, -1, "lydian", "", "Maj7"],
+        [4, 2774, 1, "mixolydian", "", "7"],
+        [5, 2906, 3, "aeolian", "m", "m7", "minor"],
+        [6, 3434, 5, "locrian", "dim", "m7b5"]
+    ];
+
+    var NoMode = __assign(__assign({}, pcset.EmptyPcset), { name: "", alt: 0, modeNum: NaN, triad: "", seventh: "", aliases: [] });
+    var modes = DATA.map(toMode);
+    var index = {};
+    modes.forEach(function (mode) {
+        index[mode.name] = mode;
+        mode.aliases.forEach(function (alias) {
+            index[alias] = mode;
+        });
+    });
+    /**
+     * Get a Mode by it's name
+     *
+     * @example
+     * get('dorian')
+     * // =>
+     * // {
+     * //   intervals: [ '1P', '2M', '3m', '4P', '5P', '6M', '7m' ],
+     * //   modeNum: 1,
+     * //   chroma: '101101010110',
+     * //   normalized: '101101010110',
+     * //   name: 'dorian',
+     * //   setNum: 2902,
+     * //   alt: 2,
+     * //   triad: 'm',
+     * //   seventh: 'm7',
+     * //   aliases: []
+     * // }
+     */
+    function get(name) {
+        return typeof name === "string"
+            ? index[name.toLowerCase()] || NoMode
+            : name && name.name
+                ? get(name.name)
+                : NoMode;
+    }
+    var mode = core.deprecate("Mode.mode", "Mode.get", get);
+    /**
+     * Get a list of all modes
+     */
+    function all() {
+        return modes.slice();
+    }
+    var entries = core.deprecate("Mode.mode", "Mode.all", all);
+    /**
+     * Get a list of all mode names
+     */
+    function names() {
+        return modes.map(function (mode) { return mode.name; });
+    }
+    function toMode(mode) {
+        var modeNum = mode[0], setNum = mode[1], alt = mode[2], name = mode[3], triad = mode[4], seventh = mode[5], alias = mode[6];
+        var aliases = alias ? [alias] : [];
+        var chroma = Number(setNum).toString(2);
+        var intervals = pcset.chromaToIntervals(chroma);
+        return {
+            empty: false,
+            intervals: intervals,
+            modeNum: modeNum,
+            chroma: chroma,
+            normalized: chroma,
+            name: name,
+            setNum: setNum,
+            alt: alt,
+            triad: triad,
+            seventh: seventh,
+            aliases: aliases
+        };
+    }
+    var index$1 = {
+        get: get,
+        names: names,
+        all: all,
+        // deprecated
+        entries: entries,
+        mode: mode
+    };
+
+    exports.all = all;
+    exports.default = index$1;
+    exports.entries = entries;
+    exports.get = get;
+    exports.mode = mode;
+    exports.names = names;
+
+    Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8,"@tonaljs/pcset":15}],14:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core'), require('@tonaljs/midi')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core', '@tonaljs/midi'], factory) :
+  (global = global || self, factory(global.Note = {}, global.core, global.midi$1));
+}(this, (function (exports, core, midi$1) { 'use strict';
+
+  var NAMES = ["C", "D", "E", "F", "G", "A", "B"];
+  var toName = function (n) { return n.name; };
+  var onlyNotes = function (array) {
+      return array.map(core.note).filter(function (n) { return !n.empty; });
+  };
+  /**
+   * Return the natural note names without octave
+   * @function
+   * @example
+   * Note.names(); // => ["C", "D", "E", "F", "G", "A", "B"]
+   */
+  function names(array) {
+      if (array === undefined) {
+          return NAMES.slice();
+      }
+      else if (!Array.isArray(array)) {
+          return [];
+      }
+      else {
+          return onlyNotes(array).map(toName);
+      }
+  }
+  /**
+   * Get a note from a note name
+   *
+   * @function
+   * @example
+   * Note.get('Bb4') // => { name: "Bb4", midi: 70, chroma: 10, ... }
+   */
+  var get = core.note;
+  /**
+   * Get the note name
+   * @function
+   */
+  var name = function (note) { return get(note).name; };
+  /**
+   * Get the note pitch class name
+   * @function
+   */
+  var pitchClass = function (note) { return get(note).pc; };
+  /**
+   * Get the note accidentals
+   * @function
+   */
+  var accidentals = function (note) { return get(note).acc; };
+  /**
+   * Get the note octave
+   * @function
+   */
+  var octave = function (note) { return get(note).oct; };
+  /**
+   * Get the note midi
+   * @function
+   */
+  var midi = function (note) { return get(note).midi; };
+  /**
+   * Get the note midi
+   * @function
+   */
+  var freq = function (note) { return get(note).freq; };
+  /**
+   * Get the note chroma
+   * @function
+   */
+  var chroma = function (note) { return get(note).chroma; };
+  /**
+   * Given a midi number, returns a note name. Uses flats for altered notes.
+   *
+   * @function
+   * @param {number} midi - the midi note number
+   * @return {string} the note name
+   * @example
+   * Note.fromMidi(61) // => "Db4"
+   * Note.fromMidi(61.7) // => "D4"
+   */
+  function fromMidi(midi) {
+      return midi$1.midiToNoteName(midi);
+  }
+  /**
+   * Given a midi number, returns a note name. Uses flats for altered notes.
+   *
+   * @function
+   * @param {number} midi - the midi note number
+   * @return {string} the note name
+   * @example
+   * Note.fromMidiSharps(61) // => "C#4"
+   */
+  function fromMidiSharps(midi) {
+      return midi$1.midiToNoteName(midi, { sharps: true });
+  }
+  /**
+   * Transpose a note by an interval
+   */
+  var transpose = core.transpose;
+  var tr = core.transpose;
+  /**
+   * Transpose by an interval.
+   * @function
+   * @param {string} interval
+   * @return {function} a function that transposes by the given interval
+   * @example
+   * ["C", "D", "E"].map(Note.transposeBy("5P"));
+   * // => ["G", "A", "B"]
+   */
+  var transposeBy = function (interval) { return function (note) {
+      return transpose(note, interval);
+  }; };
+  var trBy = transposeBy;
+  /**
+   * Transpose from a note
+   * @function
+   * @param {string} note
+   * @return {function}  a function that transposes the the note by an interval
+   * ["1P", "3M", "5P"].map(Note.transposeFrom("C"));
+   * // => ["C", "E", "G"]
+   */
+  var transposeFrom = function (note) { return function (interval) {
+      return transpose(note, interval);
+  }; };
+  var trFrom = transposeFrom;
+  /**
+   * Transpose a note by a number of perfect fifths.
+   *
+   * @function
+   * @param {string} note - the note name
+   * @param {number} fifhts - the number of fifths
+   * @return {string} the transposed note name
+   *
+   * @example
+   * import { transposeFifths } from "@tonaljs/note"
+   * transposeFifths("G4", 1) // => "D"
+   * [0, 1, 2, 3, 4].map(fifths => transposeFifths("C", fifths)) // => ["C", "G", "D", "A", "E"]
+   */
+  function transposeFifths(noteName, fifths) {
+      var note = get(noteName);
+      if (note.empty) {
+          return "";
+      }
+      var _a = note.coord, nFifths = _a[0], nOcts = _a[1];
+      var transposed = nOcts === undefined
+          ? core.coordToNote([nFifths + fifths])
+          : core.coordToNote([nFifths + fifths, nOcts]);
+      return transposed.name;
+  }
+  var trFifths = transposeFifths;
+  var ascending = function (a, b) { return a.height - b.height; };
+  var descending = function (a, b) { return b.height - a.height; };
+  function sortedNames(notes, comparator) {
+      comparator = comparator || ascending;
+      return onlyNotes(notes)
+          .sort(comparator)
+          .map(toName);
+  }
+  function sortedUniqNames(notes) {
+      return sortedNames(notes, ascending).filter(function (n, i, a) { return i === 0 || n !== a[i - 1]; });
+  }
+  /**
+   * Simplify a note
+   *
+   * @function
+   * @param {string} note - the note to be simplified
+   * - sameAccType: default true. Use same kind of accidentals that source
+   * @return {string} the simplified note or '' if not valid note
+   * @example
+   * simplify("C##") // => "D"
+   * simplify("C###") // => "D#"
+   * simplify("C###")
+   * simplify("B#4") // => "C5"
+   */
+  var simplify = nameBuilder(true);
+  /**
+   * Get enharmonic of a note
+   *
+   * @function
+   * @param {string} note
+   * @return {string} the enharmonic note or '' if not valid note
+   * @example
+   * Note.enharmonic("Db") // => "C#"
+   * Note.enharmonic("C") // => "C"
+   */
+  var enharmonic = nameBuilder(false);
+  function nameBuilder(sameAccidentals) {
+      return function (noteName) {
+          var note = get(noteName);
+          if (note.empty) {
+              return "";
+          }
+          var sharps = sameAccidentals ? note.alt > 0 : note.alt < 0;
+          var pitchClass = note.midi === null;
+          return midi$1.midiToNoteName(note.midi || note.chroma, { sharps: sharps, pitchClass: pitchClass });
+      };
+  }
+  var index = {
+      names: names,
+      get: get,
+      name: name,
+      pitchClass: pitchClass,
+      accidentals: accidentals,
+      octave: octave,
+      midi: midi,
+      ascending: ascending,
+      descending: descending,
+      sortedNames: sortedNames,
+      sortedUniqNames: sortedUniqNames,
+      fromMidi: fromMidi,
+      fromMidiSharps: fromMidiSharps,
+      freq: freq,
+      chroma: chroma,
+      transpose: transpose,
+      tr: tr,
+      transposeBy: transposeBy,
+      trBy: trBy,
+      transposeFrom: transposeFrom,
+      trFrom: trFrom,
+      transposeFifths: transposeFifths,
+      trFifths: trFifths,
+      simplify: simplify,
+      enharmonic: enharmonic
+  };
+
+  exports.accidentals = accidentals;
+  exports.ascending = ascending;
+  exports.chroma = chroma;
+  exports.default = index;
+  exports.descending = descending;
+  exports.enharmonic = enharmonic;
+  exports.freq = freq;
+  exports.fromMidi = fromMidi;
+  exports.fromMidiSharps = fromMidiSharps;
+  exports.get = get;
+  exports.midi = midi;
+  exports.name = name;
+  exports.names = names;
+  exports.octave = octave;
+  exports.pitchClass = pitchClass;
+  exports.simplify = simplify;
+  exports.sortedNames = sortedNames;
+  exports.sortedUniqNames = sortedUniqNames;
+  exports.tr = tr;
+  exports.trBy = trBy;
+  exports.trFifths = trFifths;
+  exports.trFrom = trFrom;
+  exports.transpose = transpose;
+  exports.transposeBy = transposeBy;
+  exports.transposeFifths = transposeFifths;
+  exports.transposeFrom = transposeFrom;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8,"@tonaljs/midi":12}],15:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/collection'), require('@tonaljs/core')) :
   typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/collection', '@tonaljs/core'], factory) :
@@ -1840,7 +2981,208 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/collection":5,"@tonaljs/core":6}],9:[function(require,module,exports){
+},{"@tonaljs/collection":7,"@tonaljs/core":8}],16:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/chord'), require('@tonaljs/core'), require('@tonaljs/roman-numeral')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/chord', '@tonaljs/core', '@tonaljs/roman-numeral'], factory) :
+  (global = global || self, factory(global.Progression = {}, global.chord, global.core, global.romanNumeral));
+}(this, (function (exports, chord, core, romanNumeral) { 'use strict';
+
+  /**
+   * Given a tonic and a chord list expressed with roman numeral notation
+   * returns the progression expressed with leadsheet chords symbols notation
+   * @example
+   * fromRomanNumerals("C", ["I", "IIm7", "V7"]);
+   * // => ["C", "Dm7", "G7"]
+   */
+  function fromRomanNumerals(tonic, chords) {
+      var romanNumerals = chords.map(romanNumeral.get);
+      return romanNumerals.map(function (rn) { return core.transpose(tonic, core.interval(rn)) + rn.chordType; });
+  }
+  /**
+   * Given a tonic and a chord list with leadsheet symbols notation,
+   * return the chord list with roman numeral notation
+   * @example
+   * toRomanNumerals("C", ["CMaj7", "Dm7", "G7"]);
+   * // => ["IMaj7", "IIm7", "V7"]
+   */
+  function toRomanNumerals(tonic, chords) {
+      return chords.map(function (chord$1) {
+          var _a = chord.tokenize(chord$1), note = _a[0], chordType = _a[1];
+          var intervalName = core.distance(tonic, note);
+          var roman = romanNumeral.get(core.interval(intervalName));
+          return roman.name + chordType;
+      });
+  }
+  var index = { fromRomanNumerals: fromRomanNumerals, toRomanNumerals: toRomanNumerals };
+
+  exports.default = index;
+  exports.fromRomanNumerals = fromRomanNumerals;
+  exports.toRomanNumerals = toRomanNumerals;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/chord":6,"@tonaljs/core":8,"@tonaljs/roman-numeral":18}],17:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/collection'), require('@tonaljs/midi')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/collection', '@tonaljs/midi'], factory) :
+  (global = global || self, factory(global.Range = {}, global.collection, global.midi));
+}(this, (function (exports, collection, midi) { 'use strict';
+
+  /**
+   * Create a numeric range. You supply a list of notes or numbers and it will
+   * be connected to create complex ranges.
+   *
+   * @param {Array} array - the list of notes or numbers used
+   * @return {Array} an array of numbers or empty array if not valid parameters
+   *
+   * @example
+   * numeric(["C5", "C4"]) // => [ 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, 60 ]
+   * // it works midi notes
+   * numeric([10, 5]) // => [ 10, 9, 8, 7, 6, 5 ]
+   * // complex range
+   * numeric(["C4", "E4", "Bb3"]) // => [60, 61, 62, 63, 64, 63, 62, 61, 60, 59, 58]
+   */
+  function numeric(notes) {
+      var midi$1 = collection.compact(notes.map(midi.toMidi));
+      if (!notes.length || midi$1.length !== notes.length) {
+          // there is no valid notes
+          return [];
+      }
+      return midi$1.reduce(function (result, note) {
+          var last = result[result.length - 1];
+          return result.concat(collection.range(last, note).slice(1));
+      }, [midi$1[0]]);
+  }
+  /**
+   * Create a range of chromatic notes. The altered notes will use flats.
+   *
+   * @function
+   * @param {String|Array} list - the list of notes or midi note numbers
+   * @return {Array} an array of note names
+   *
+   * @example
+   * Range.chromatic("C2 E2 D2") // => ["C2", "Db2", "D2", "Eb2", "E2", "Eb2", "D2"]
+   * // with sharps
+   * Range.chromatic("C2 C3", true) // => [ "C2", "C#2", "D2", "D#2", "E2", "F2", "F#2", "G2", "G#2", "A2", "A#2", "B2", "C3" ]
+   */
+  function chromatic(notes, options) {
+      return numeric(notes).map(function (midi$1) { return midi.midiToNoteName(midi$1, options); });
+  }
+  var index = { numeric: numeric, chromatic: chromatic };
+
+  exports.chromatic = chromatic;
+  exports.default = index;
+  exports.numeric = numeric;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/collection":7,"@tonaljs/midi":12}],18:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
+  (global = global || self, factory(global.RomanNumeral = {}, global.core));
+}(this, (function (exports, core) { 'use strict';
+
+  var NoRomanNumeral = { empty: true, name: "", chordType: "" };
+  var cache = {};
+  /**
+   * Get properties of a roman numeral string
+   *
+   * @function
+   * @param {string} - the roman numeral string (can have type, like: Imaj7)
+   * @return {Object} - the roman numeral properties
+   * @param {string} name - the roman numeral (tonic)
+   * @param {string} type - the chord type
+   * @param {string} num - the number (1 = I, 2 = II...)
+   * @param {boolean} major - major or not
+   *
+   * @example
+   * romanNumeral("VIIb5") // => { name: "VII", type: "b5", num: 7, major: true }
+   */
+  function get(src) {
+      return typeof src === "string"
+          ? cache[src] || (cache[src] = parse(src))
+          : typeof src === "number"
+              ? get(NAMES[src] || "")
+              : core.isPitch(src)
+                  ? fromPitch(src)
+                  : core.isNamed(src)
+                      ? get(src.name)
+                      : NoRomanNumeral;
+  }
+  var romanNumeral = core.deprecate("RomanNumeral.romanNumeral", "RomanNumeral.get", get);
+  /**
+   * Get roman numeral names
+   *
+   * @function
+   * @param {boolean} [isMajor=true]
+   * @return {Array<String>}
+   *
+   * @example
+   * names() // => ["I", "II", "III", "IV", "V", "VI", "VII"]
+   */
+  function names(major) {
+      if (major === void 0) { major = true; }
+      return (major ? NAMES : NAMES_MINOR).slice();
+  }
+  function fromPitch(pitch) {
+      return get(core.altToAcc(pitch.alt) + NAMES[pitch.step]);
+  }
+  var REGEX = /^(#{1,}|b{1,}|x{1,}|)(IV|I{1,3}|VI{0,2}|iv|i{1,3}|vi{0,2})([^IViv]*)$/;
+  function tokenize(str) {
+      return (REGEX.exec(str) || ["", "", "", ""]);
+  }
+  var ROMANS = "I II III IV V VI VII";
+  var NAMES = ROMANS.split(" ");
+  var NAMES_MINOR = ROMANS.toLowerCase().split(" ");
+  function parse(src) {
+      var _a = tokenize(src), name = _a[0], acc = _a[1], roman = _a[2], chordType = _a[3];
+      if (!roman) {
+          return NoRomanNumeral;
+      }
+      var upperRoman = roman.toUpperCase();
+      var step = NAMES.indexOf(upperRoman);
+      var alt = core.accToAlt(acc);
+      var dir = 1;
+      return {
+          empty: false,
+          name: name,
+          roman: roman,
+          interval: core.interval({ step: step, alt: alt, dir: dir }).name,
+          acc: acc,
+          chordType: chordType,
+          alt: alt,
+          step: step,
+          major: roman === upperRoman,
+          oct: 0,
+          dir: dir
+      };
+  }
+  var index = {
+      names: names,
+      get: get,
+      // deprecated
+      romanNumeral: romanNumeral
+  };
+
+  exports.default = index;
+  exports.get = get;
+  exports.names = names;
+  exports.tokenize = tokenize;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/core":8}],19:[function(require,module,exports){
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core'), require('@tonaljs/pcset')) :
     typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core', '@tonaljs/pcset'], factory) :
@@ -2089,7 +3431,294 @@ if (typeof window !== 'undefined') {
 })));
 
 
-},{"@tonaljs/core":6,"@tonaljs/pcset":8}],10:[function(require,module,exports){
+},{"@tonaljs/core":8,"@tonaljs/pcset":15}],20:[function(require,module,exports){
+(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/chord-type'), require('@tonaljs/collection'), require('@tonaljs/core'), require('@tonaljs/note'), require('@tonaljs/pcset'), require('@tonaljs/scale-type')) :
+    typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/chord-type', '@tonaljs/collection', '@tonaljs/core', '@tonaljs/note', '@tonaljs/pcset', '@tonaljs/scale-type'], factory) :
+    (global = global || self, factory(global.Scale = {}, global.chordType, global.collection, global.core, global.note, global.pcset, global.scaleType));
+}(this, (function (exports, chordType, collection, core, note, pcset, scaleType) { 'use strict';
+
+    /*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */
+
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
+    var NoScale = {
+        empty: true,
+        name: "",
+        type: "",
+        tonic: null,
+        setNum: NaN,
+        chroma: "",
+        normalized: "",
+        aliases: [],
+        notes: [],
+        intervals: []
+    };
+    /**
+     * Given a string with a scale name and (optionally) a tonic, split
+     * that components.
+     *
+     * It retuns an array with the form [ name, tonic ] where tonic can be a
+     * note name or null and name can be any arbitrary string
+     * (this function doesn"t check if that scale name exists)
+     *
+     * @function
+     * @param {string} name - the scale name
+     * @return {Array} an array [tonic, name]
+     * @example
+     * tokenize("C mixolydean") // => ["C", "mixolydean"]
+     * tokenize("anything is valid") // => ["", "anything is valid"]
+     * tokenize() // => ["", ""]
+     */
+    function tokenize(name) {
+        if (typeof name !== "string") {
+            return ["", ""];
+        }
+        var i = name.indexOf(" ");
+        var tonic = core.note(name.substring(0, i));
+        if (tonic.empty) {
+            var n = core.note(name);
+            return n.empty ? ["", name] : [n.name, ""];
+        }
+        var type = name.substring(tonic.name.length + 1);
+        return [tonic.name, type.length ? type : ""];
+    }
+    /**
+     * Get all scale names
+     * @function
+     */
+    var names = scaleType.names;
+    /**
+     * Get a Scale from a scale name.
+     */
+    function get(src) {
+        var tokens = Array.isArray(src) ? src : tokenize(src);
+        var tonic = core.note(tokens[0]).name;
+        var st = scaleType.get(tokens[1]);
+        if (st.empty) {
+            return NoScale;
+        }
+        var type = st.name;
+        var notes = tonic
+            ? st.intervals.map(function (i) { return core.transpose(tonic, i); })
+            : [];
+        var name = tonic ? tonic + " " + type : type;
+        return __assign(__assign({}, st), { name: name, type: type, tonic: tonic, notes: notes });
+    }
+    var scale = core.deprecate("Scale.scale", "Scale.get", get);
+    /**
+     * Get all chords that fits a given scale
+     *
+     * @function
+     * @param {string} name - the scale name
+     * @return {Array<string>} - the chord names
+     *
+     * @example
+     * scaleChords("pentatonic") // => ["5", "64", "M", "M6", "Madd9", "Msus2"]
+     */
+    function scaleChords(name) {
+        var s = get(name);
+        var inScale = pcset.isSubsetOf(s.chroma);
+        return chordType.all()
+            .filter(function (chord) { return inScale(chord.chroma); })
+            .map(function (chord) { return chord.aliases[0]; });
+    }
+    /**
+     * Get all scales names that are a superset of the given one
+     * (has the same notes and at least one more)
+     *
+     * @function
+     * @param {string} name
+     * @return {Array} a list of scale names
+     * @example
+     * extended("major") // => ["bebop", "bebop dominant", "bebop major", "chromatic", "ichikosucho"]
+     */
+    function extended(name) {
+        var s = get(name);
+        var isSuperset = pcset.isSupersetOf(s.chroma);
+        return scaleType.all()
+            .filter(function (scale) { return isSuperset(scale.chroma); })
+            .map(function (scale) { return scale.name; });
+    }
+    /**
+     * Find all scales names that are a subset of the given one
+     * (has less notes but all from the given scale)
+     *
+     * @function
+     * @param {string} name
+     * @return {Array} a list of scale names
+     *
+     * @example
+     * reduced("major") // => ["ionian pentatonic", "major pentatonic", "ritusen"]
+     */
+    function reduced(name) {
+        var isSubset = pcset.isSubsetOf(get(name).chroma);
+        return scaleType.all()
+            .filter(function (scale) { return isSubset(scale.chroma); })
+            .map(function (scale) { return scale.name; });
+    }
+    /**
+     * Given an array of notes, return the scale: a pitch class set starting from
+     * the first note of the array
+     *
+     * @function
+     * @param {string[]} notes
+     * @return {string[]} pitch classes with same tonic
+     * @example
+     * scaleNotes(['C4', 'c3', 'C5', 'C4', 'c4']) // => ["C"]
+     * scaleNotes(['D4', 'c#5', 'A5', 'F#6']) // => ["D", "F#", "A", "C#"]
+     */
+    function scaleNotes(notes) {
+        var pcset = notes.map(function (n) { return core.note(n).pc; }).filter(function (x) { return x; });
+        var tonic = pcset[0];
+        var scale = note.sortedUniqNames(pcset);
+        return collection.rotate(scale.indexOf(tonic), scale);
+    }
+    /**
+     * Find mode names of a scale
+     *
+     * @function
+     * @param {string} name - scale name
+     * @example
+     * modeNames("C pentatonic") // => [
+     *   ["C", "major pentatonic"],
+     *   ["D", "egyptian"],
+     *   ["E", "malkos raga"],
+     *   ["G", "ritusen"],
+     *   ["A", "minor pentatonic"]
+     * ]
+     */
+    function modeNames(name) {
+        var s = get(name);
+        if (s.empty) {
+            return [];
+        }
+        var tonics = s.tonic ? s.notes : s.intervals;
+        return pcset.modes(s.chroma)
+            .map(function (chroma, i) {
+            var modeName = get(chroma).name;
+            return modeName ? [tonics[i], modeName] : ["", ""];
+        })
+            .filter(function (x) { return x[0]; });
+    }
+    var index = {
+        get: get,
+        names: names,
+        extended: extended,
+        modeNames: modeNames,
+        reduced: reduced,
+        scaleChords: scaleChords,
+        scaleNotes: scaleNotes,
+        tokenize: tokenize,
+        // deprecated
+        scale: scale
+    };
+
+    exports.default = index;
+    exports.extended = extended;
+    exports.get = get;
+    exports.modeNames = modeNames;
+    exports.names = names;
+    exports.reduced = reduced;
+    exports.scale = scale;
+    exports.scaleChords = scaleChords;
+    exports.scaleNotes = scaleNotes;
+    exports.tokenize = tokenize;
+
+    Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/chord-type":5,"@tonaljs/collection":7,"@tonaljs/core":8,"@tonaljs/note":14,"@tonaljs/pcset":15,"@tonaljs/scale-type":19}],21:[function(require,module,exports){
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/abc-notation'), require('@tonaljs/array'), require('@tonaljs/chord'), require('@tonaljs/chord-type'), require('@tonaljs/collection'), require('@tonaljs/core'), require('@tonaljs/duration-value'), require('@tonaljs/interval'), require('@tonaljs/key'), require('@tonaljs/midi'), require('@tonaljs/mode'), require('@tonaljs/note'), require('@tonaljs/pcset'), require('@tonaljs/progression'), require('@tonaljs/range'), require('@tonaljs/roman-numeral'), require('@tonaljs/scale'), require('@tonaljs/scale-type')) :
+  typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/abc-notation', '@tonaljs/array', '@tonaljs/chord', '@tonaljs/chord-type', '@tonaljs/collection', '@tonaljs/core', '@tonaljs/duration-value', '@tonaljs/interval', '@tonaljs/key', '@tonaljs/midi', '@tonaljs/mode', '@tonaljs/note', '@tonaljs/pcset', '@tonaljs/progression', '@tonaljs/range', '@tonaljs/roman-numeral', '@tonaljs/scale', '@tonaljs/scale-type'], factory) :
+  (global = global || self, factory(global.Tonal = {}, global.abcNotation, global.array, global.chord, global.ChordType, global.collection, global.Core, global.durationValue, global.interval, global.key, global.midi, global.mode, global.note, global.Pcset, global.progression, global.range, global.romanNumeral, global.scale, global.ScaleType));
+}(this, (function (exports, abcNotation, array, chord, ChordType, collection, Core, durationValue, interval, key, midi, mode, note, Pcset, progression, range, romanNumeral, scale, ScaleType) { 'use strict';
+
+  abcNotation = abcNotation && Object.prototype.hasOwnProperty.call(abcNotation, 'default') ? abcNotation['default'] : abcNotation;
+  chord = chord && Object.prototype.hasOwnProperty.call(chord, 'default') ? chord['default'] : chord;
+  ChordType = ChordType && Object.prototype.hasOwnProperty.call(ChordType, 'default') ? ChordType['default'] : ChordType;
+  collection = collection && Object.prototype.hasOwnProperty.call(collection, 'default') ? collection['default'] : collection;
+  durationValue = durationValue && Object.prototype.hasOwnProperty.call(durationValue, 'default') ? durationValue['default'] : durationValue;
+  interval = interval && Object.prototype.hasOwnProperty.call(interval, 'default') ? interval['default'] : interval;
+  key = key && Object.prototype.hasOwnProperty.call(key, 'default') ? key['default'] : key;
+  midi = midi && Object.prototype.hasOwnProperty.call(midi, 'default') ? midi['default'] : midi;
+  mode = mode && Object.prototype.hasOwnProperty.call(mode, 'default') ? mode['default'] : mode;
+  note = note && Object.prototype.hasOwnProperty.call(note, 'default') ? note['default'] : note;
+  Pcset = Pcset && Object.prototype.hasOwnProperty.call(Pcset, 'default') ? Pcset['default'] : Pcset;
+  progression = progression && Object.prototype.hasOwnProperty.call(progression, 'default') ? progression['default'] : progression;
+  range = range && Object.prototype.hasOwnProperty.call(range, 'default') ? range['default'] : range;
+  romanNumeral = romanNumeral && Object.prototype.hasOwnProperty.call(romanNumeral, 'default') ? romanNumeral['default'] : romanNumeral;
+  scale = scale && Object.prototype.hasOwnProperty.call(scale, 'default') ? scale['default'] : scale;
+  ScaleType = ScaleType && Object.prototype.hasOwnProperty.call(ScaleType, 'default') ? ScaleType['default'] : ScaleType;
+
+  // deprecated (backwards compatibility)
+  var Tonal = Core;
+  var PcSet = Pcset;
+  var ChordDictionary = ChordType;
+  var ScaleDictionary = ScaleType;
+
+  Object.keys(Core).forEach(function (k) {
+    if (k !== 'default') Object.defineProperty(exports, k, {
+      enumerable: true,
+      get: function () {
+        return Core[k];
+      }
+    });
+  });
+  exports.AbcNotation = abcNotation;
+  exports.Array = array;
+  exports.Chord = chord;
+  exports.ChordType = ChordType;
+  exports.Collection = collection;
+  exports.Core = Core;
+  exports.DurationValue = durationValue;
+  exports.Interval = interval;
+  exports.Key = key;
+  exports.Midi = midi;
+  exports.Mode = mode;
+  exports.Note = note;
+  exports.Pcset = Pcset;
+  exports.Progression = progression;
+  exports.Range = range;
+  exports.RomanNumeral = romanNumeral;
+  exports.Scale = scale;
+  exports.ScaleType = ScaleType;
+  exports.ChordDictionary = ChordDictionary;
+  exports.PcSet = PcSet;
+  exports.ScaleDictionary = ScaleDictionary;
+  exports.Tonal = Tonal;
+
+  Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+
+
+},{"@tonaljs/abc-notation":2,"@tonaljs/array":3,"@tonaljs/chord":6,"@tonaljs/chord-type":5,"@tonaljs/collection":7,"@tonaljs/core":8,"@tonaljs/duration-value":9,"@tonaljs/interval":10,"@tonaljs/key":11,"@tonaljs/midi":12,"@tonaljs/mode":13,"@tonaljs/note":14,"@tonaljs/pcset":15,"@tonaljs/progression":16,"@tonaljs/range":17,"@tonaljs/roman-numeral":18,"@tonaljs/scale":20,"@tonaljs/scale-type":19}],22:[function(require,module,exports){
 /*
 
 WebMidi v2.5.1

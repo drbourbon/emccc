@@ -39,7 +39,7 @@
       <div id="piano-keys" class="justify-content-center"></div>
       <br>
       <div class="d-flex justify-content-center">
-        <h1 class="display-3"><span id="out" class="badge badge-light badge-pill"></span></h1>
+        <h1 class="display-4"><span id="out" class="badge badge-light badge-pill"></span></h1>
       </div>
       <br>
       <div class="d-flex justify-content-center">
@@ -86,8 +86,9 @@ $(function() {
 
   $(document).on("emccc:chord", (e,c,r) => {
     if(c){
+//      $('#out').text(c + " (" + r.notes + ")");
       $('#out').text(c);
-      if(r && r.shape && r.color){
+      if(r && r.tonica){
         $('#shape').html(
           `shape:<span id="shape" class="badge badge-info badge-pill">${r.shape}</span>
            color:<span id="shape" class="badge badge-secondary badge-pill">${r.color}</span>

@@ -1,28 +1,48 @@
-const p = require("@tonaljs/pcset")
+//const p = require("@tonaljs/pcset")
 const c = require("@tonaljs/chord")
 const m = require("@tonaljs/midi")
+const { Interval } = require("@tonaljs/tonal");
 const WebMidi = require("webmidi");
 
 var device = null;
 var emc_channel = 0;
 var last_emc_note = 0;
+var last_emc_shape = 0;
+var last_emc_color = 0;
 var offline_mode = false;
 
 function sendShapeColor(note, shape, color, velocity, channel) {
-//    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
+    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
     last_emc_note = note;
-    device.sendControlChange(17,shape,channel)
+    last_emc_shape = shape;
+    last_emc_color = color;
+    if(device){
+        device
         .sendControlChange(16,color, channel)
+        .sendControlChange(17,shape,channel)
         .playNote(note, channel, { velocity:velocity });
 //    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
+
+    }
 }
 
 function sendOff(channel) {
-    if(last_emc_note){
+    if(last_emc_note && device){
         const n = current_notes.filter(Boolean).length ;
-        if(n==0)
+        if(n==0){
+            console.log(`Sending Note Off:${last_emc_note}`);
             device.stopNote(last_emc_note, channel)
+        }
     }
+}
+
+function sendShape() {
+    if(device && emc_channel && last_emc_shape) device.sendControlChange(17,last_emc_shape,emc_channel);
+}
+
+function sendNote() {
+    if(device && emc_channel && last_emc_note)
+        device.playNote(last_emc_note, emc_channel, { duration:660 });
 }
 
 function enableWebMidi() {
@@ -150,11 +170,13 @@ function onConnect() {
     $('.device-disabled').addClass('disabled');
     
     connection_complete = true;
+    offline_mode = false;
     console.log('Connection established');
 }
 
 function onDisconnect() {
     device = null;
+    offline_mode = true;
 
     // app level 
     $('#unconnected_message').show();
@@ -176,7 +198,7 @@ function onDisconnect() {
 }
 
 function soloNota(s) {
-    if(s[1]=='b' || s[1]=='#') return s.substring(0,1);
+    if(s[1]=='b' || s[1]=='#') return s.substring(0,2);
     return s[0];
 }
 
@@ -185,18 +207,24 @@ function soloTipo(s) {
     return s.substring(1);
 }
 
+function tonicaToString(s) {
+    return s.slice(0,-1) + ((s[1]=='b' || s[1]=='#') ? "":"-") + (parseInt(s.slice(-1))+1) // trick
+}
+
 function playedChord(send) {
     const n = current_notes.filter(Boolean).length ;
-    if(n>2){
-        var chord = [];
-        var velocity = 0;
-        for(var i=0; i<current_notes.length; i++){
-            if(current_notes[i]){
-                if(velocity==0) velocity = current_notes_velocity[i];
-                chord.push(m.midiToNoteName(i, { sharps: true }));
-            }
+
+    var chord = [];
+    var velocity = 0;
+    for(var i=0; i<current_notes.length; i++){
+        if(current_notes[i]){
+            if(velocity==0) velocity = current_notes_velocity[i];
+            chord.push(m.midiToNoteName(i, { sharps: true }));
         }
+    }
 //        console.log(chord);
+
+    if(n>2){
         const name = c.detect(chord);
 //        console.log(name);
         if(name.length>0){
@@ -210,10 +238,12 @@ function playedChord(send) {
                 rivolto = 0;
             } else {
                 switch(n){
-                    case 3: rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; break;
-                    case 4: rivolto = soloNota(chord[1])==baseSoloNota ? 1 : 
-                        soloNota(chord[2])==baseSoloNota ? 2 : 3; 
-                        break
+                    case 3: 
+                        rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; 
+                        break;
+                    case 4: rivolto = soloNota(chord[3])==baseSoloNota ? 1 : 
+                        (soloNota(chord[2])==baseSoloNota ? 2 : 3); 
+                        break;
                     default: rivolto = 0; break;
                 }
             }
@@ -222,23 +252,21 @@ function playedChord(send) {
             if(send || offline_mode){
                 const chordType = soloTipo(base);
                 const shape = shapeMap[chordType];
-                const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto = 2 ? 74 : 84));
+                const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto == 2 ? 74 : 84));
                 var tonica = soloNota(chord[0])==baseSoloNota ? chord[0] : 
                     (soloNota(chord[1])==baseSoloNota ? chord[1] :
                         (soloNota(chord[2])==baseSoloNota ? chord[2] : chord[3]));
     
                 const tonicaCode = m.toMidi(tonica);
 
-                tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
-
                 if((emc_channel||offline_mode) && shape && color && tonicaCode){
                     if(!offline_mode)
-                        sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
+                        sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
                     $(document).trigger('emccc:chord',[ cname, {
                         "chord":cname,
                         "shape":shape,
                         "color":color,
-                        "tonica":tonica,
+                        "tonica":tonicaToString(tonica),
                         "notes":chord
                     } ]);
                     return;
@@ -249,7 +277,7 @@ function playedChord(send) {
                 $(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
             return;
         }
-    } else if (false /*n==1*/) {
+    } else if (n==1) {
         var note = 0;
         for(var i=0; i<current_notes.length; i++){
             if(current_notes[i]){
@@ -259,29 +287,49 @@ function playedChord(send) {
         }
         const cname = soloNota(note);
 
-        if(send){
+        if(send || offline_mode){
             const shape = 1;
-            const color = 1; // detune
+            const color = 0; 
             var tonica = note;
             const tonicaCode = m.toMidi(tonica);
     
-            tonica = tonica.slice(0,-1) + "-" + (parseInt(tonica.slice(-1))+1) // trick
-    
-            if(emc_channel){
-                sendShapeColor(tonicaCode, shape-1, color-1, velocity, emc_channel);
-                /*
+            if(emc_channel || offline_mode){
+                if(!offline_mode)
+                    sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
                 $(document).trigger('emccc:chord',[ cname, {
                     "chord":cname,
                     "shape":shape,
                     "color":color,
-                    "tonica":tonica,
+                    "tonica":tonicaToString(tonica),
                     "notes":chord
                 } ]);
-                */
                 return;
             }
         }
         //(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":[ note ] } ]);
+        return;
+    } else if (n==2) {
+        var interval = Interval.distance(chord[0],chord[1]);
+        interval = Interval.simplify(interval);
+        const semitones = Interval.semitones(interval);
+        console.log(chord);
+        // custom Elektron rules
+        var color, shape, tonica;
+        switch(semitones){
+            case 3: color = 10; shape = 4; tonica=tonicaToString(chord[0]); break; // minor third from m
+            case 4: color = 10; shape = 5; tonica=tonicaToString(chord[0]); break; // major third from M
+            default: color = 0; shape = 1; tonica=null; break; // revert to single note on boh
+        }
+        const cname = soloNota(chord[0]) + "-" + soloNota(chord[1]);
+        if(offline_mode){
+            $(document).trigger('emccc:chord',[ cname, {
+                "chord":cname,
+                "shape":shape,
+                "color":color,
+                "tonica":tonica,
+                "notes":chord
+            } ]);
+        }
         return;
     }
     $(document).trigger('emccc:chord'); // undef chord
@@ -373,5 +421,11 @@ if (typeof window !== 'undefined') {
     }
     window.SetOfflineMode = function(m) {
         offline_mode = m;
+    }
+    window.sendShape = function() {
+        sendShape();
+    }
+    window.sendNote = function() {
+        sendNote();
     }
 }

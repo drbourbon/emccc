@@ -82,7 +82,7 @@ body {
 
     <footer class="footer">
       <div class="container text-center">
-        <small>copyright &copy; 2020 <a href="https://neuma.studio">neuma.studio</a></small>
+        <small>copyright &copy; 2020 <a href="https://neuma.studio">neuma.studio</a> - <a href="/offline.html">Offline version</a></small>
       </div>
     </footer>
 
@@ -92,6 +92,7 @@ body {
     <script src="detect.js"></script>
 
 <script>
+
 $(function() {
   enableWebMidi(); 
 
@@ -100,9 +101,9 @@ $(function() {
       $('#out').text(c);
       if(r && r.shape && r.color){
         $('#shape').html(
-          `shape:<span id="shape" class="badge badge-info badge-pill">${r.shape}</span>
-           color:<span id="shape" class="badge badge-secondary badge-pill">${r.color}</span>
-           note:<span id="shape" class="badge badge-dark badge-pill">${r.tonica}</span>`);
+          `shape:<a onclick="sendShape()"><span class="badge badge-info badge-pill">${r.shape}</span></a>
+           color:<a onclick="sendShape()"><span class="badge badge-secondary badge-pill">${r.color}</span></a>
+           note:<a onclick="sendNote()"><span class="badge badge-dark badge-pill">${r.tonica}</span></a>`);
       }
     } else {
 //      $('#out').text("");
