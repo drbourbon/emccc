@@ -5,6 +5,8 @@ const m = require("@tonaljs/midi")
 const { Interval } = require("@tonaljs/tonal");
 const WebMidi = require("webmidi");
 
+const Cookies = require('js-cookie');
+
 var device = null;
 var emc_channel = 0;
 var last_emc_note = 0;
@@ -13,7 +15,7 @@ var last_emc_color = 0;
 var offline_mode = false;
 
 function sendShapeColor(note, shape, color, velocity, channel) {
-    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
+//    console.log(`Sending Note:${note}, Shape:${shape}, Color:${color}, Velocity:${velocity} on Channel ${channel}`);
     last_emc_note = note;
     last_emc_shape = shape;
     last_emc_color = color;
@@ -23,7 +25,6 @@ function sendShapeColor(note, shape, color, velocity, channel) {
         .sendControlChange(17,shape,channel)
         .playNote(note, channel, { velocity:velocity });
 //    device.playNote(note, channel).sendControlChange(17,shape).sendControlChange(16,color);
-
     }
 }
 
@@ -31,7 +32,7 @@ function sendOff(channel) {
     if(last_emc_note && device){
         const n = current_notes.filter(Boolean).length ;
         if(n==0){
-            console.log(`Sending Note Off:${last_emc_note}`);
+//            console.log(`Sending Note Off:${last_emc_note}`);
             device.stopNote(last_emc_note, channel)
         }
     }
@@ -102,22 +103,13 @@ function connectInputs() {
             input.removeListener();
             input.addListener('noteon', "all", function (event) {
                 playNote(event.note.number);
-                /*
-                current_notes[event.note.number] = true;
-                current_notes_velocity[event.note.number] = event.velocity;
-                playedChord(true);
-                */
             })
             input.addListener('noteoff', "all", function (event) {
                 stopNote(event.note.number);
-                /*
-                current_notes[event.note.number] = false;
-                current_notes_velocity[event.note.number] = 0;
-                playedChord(false);
-                */
                 if(emc_channel)
                     sendOff(emc_channel);
             })            
+            console.log('Found MIDI input device: ', input.name);
         }
     }
 
@@ -172,6 +164,14 @@ function onConnect() {
     
     connection_complete = true;
     offline_mode = false;
+
+    const stored_channel = Cookies.get('emcc midi ch');
+    if(stored_channel){
+        console.log('Restoring MIDI channel ' + stored_channel);
+        emc_channel = parseInt(stored_channel);
+        $(document).trigger('emccc:midich',[ emc_channel ]);
+    }
+
     console.log('Connection established');
 }
 
@@ -212,6 +212,59 @@ function tonicaToString(s) {
     return s.slice(0,-1) + ((s[1]=='b' || s[1]=='#') ? "":"-") + (parseInt(s.slice(-1))+1) // trick
 }
 
+
+function processChord(cname, chord, velocity, send) {
+    // convert to base + rivolto
+    const base = cname.split('/')[0];
+    const baseSoloNota = soloNota(base);
+    var rivolto;
+    if(!cname.includes('/')){
+        rivolto = 0;
+    } else {
+        switch(chord.length){
+            case 3: 
+                rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; 
+                break;
+            case 4: rivolto = soloNota(chord[3])==baseSoloNota ? 1 : 
+                (soloNota(chord[2])==baseSoloNota ? 2 : 3); 
+                break;
+            default: rivolto = 0; break;
+        }
+    }
+
+    // convert chord to EMC engine shape
+    if(send || offline_mode){
+        const chordType = soloTipo(base);
+        const shape = shapeMap[chordType];
+        const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto == 2 ? 74 : 84));
+        var tonica = soloNota(chord[0])==baseSoloNota ? chord[0] : 
+            (soloNota(chord[1])==baseSoloNota ? chord[1] :
+                (soloNota(chord[2])==baseSoloNota ? chord[2] : chord[3]));
+
+        const tonicaCode = m.toMidi(tonica);
+
+        if((emc_channel||offline_mode) && shape && color && tonicaCode){
+            const payload = {
+                "chord":cname,
+                "shape":shape,
+                "color":color,
+                "tonica":tonicaToString(tonica),
+                "n":chord.length,
+                "notes":chord
+            };
+//            console.log(payload);
+            if(!offline_mode)
+                sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
+            $(document).trigger('emccc:chord',[ cname, payload ]);
+            return true;
+        }
+    }
+
+    if(offline_mode)
+        $(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
+    return false;
+}
+
 function playedChord(send) {
     const n = current_notes.filter(Boolean).length ;
 
@@ -223,60 +276,20 @@ function playedChord(send) {
             chord.push(m.midiToNoteName(i, { sharps: true }));
         }
     }
-//        console.log(chord);
+//    console.log(current_notes.filter(Boolean));
+//    console.log(chord);
 
     if(n>2){
         const name = c.detect(chord);
-//        console.log(name);
         if(name.length>0){
-            const cname = soloTipo(name[0])=='m#5' && name.length>1 ? name[1] : name[0]; // TODO others
 
-            // convert to base + rivolto
-            const base = cname.split('/')[0];
-            const baseSoloNota = soloNota(base);
-            var rivolto;
-            if(!cname.includes('/')){
-                rivolto = 0;
-            } else {
-                switch(n){
-                    case 3: 
-                        rivolto = soloNota(chord[1])==baseSoloNota ? 2 : 1; 
-                        break;
-                    case 4: rivolto = soloNota(chord[3])==baseSoloNota ? 1 : 
-                        (soloNota(chord[2])==baseSoloNota ? 2 : 3); 
-                        break;
-                    default: rivolto = 0; break;
+            let found = false;
+            for (let i=0; i<name.length; i++){
+                if(processChord(name[i], chord, velocity, send)){
+                    found = true;
+                    break;
                 }
             }
-
-            // convert chord to EMC engine shape
-            if(send || offline_mode){
-                const chordType = soloTipo(base);
-                const shape = shapeMap[chordType];
-                const color = rivolto==0 ? 32 : (rivolto==1 ? 62 : (rivolto == 2 ? 74 : 84));
-                var tonica = soloNota(chord[0])==baseSoloNota ? chord[0] : 
-                    (soloNota(chord[1])==baseSoloNota ? chord[1] :
-                        (soloNota(chord[2])==baseSoloNota ? chord[2] : chord[3]));
-    
-                const tonicaCode = m.toMidi(tonica);
-
-                if((emc_channel||offline_mode) && shape && color && tonicaCode){
-                    if(!offline_mode)
-                        sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
-                    $(document).trigger('emccc:chord',[ cname, {
-                        "chord":cname,
-                        "shape":shape,
-                        "color":color,
-                        "tonica":tonicaToString(tonica),
-                        "notes":chord
-                    } ]);
-                    return;
-                }
-            }
-
-            if(offline_mode)
-                $(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":chord } ]);
-            return;
         }
     } else if (n==1) {
         var note = 0;
@@ -302,6 +315,7 @@ function playedChord(send) {
                     "shape":shape,
                     "color":color,
                     "tonica":tonicaToString(tonica),
+                    "n":n,
                     "notes":chord
                 } ]);
                 return;
@@ -310,30 +324,44 @@ function playedChord(send) {
         //(document).trigger('emccc:chord',[ cname, { "chord":cname, "notes":[ note ] } ]);
         return;
     } else if (n==2) {
+        //  Trick by Elektron: for two notes chord, use color=10 (first two notes of chord are doubled)
         var interval = Interval.distance(chord[0],chord[1]);
         interval = Interval.simplify(interval);
         const semitones = Interval.semitones(interval);
-        console.log(chord);
-        // custom Elektron rules
-        var color, shape, tonica;
+        var color, shape, tonica=chord[0];
         switch(semitones){
-            case 3: color = 10; shape = 4; tonica=tonicaToString(chord[0]); break; // minor third from m
-            case 4: color = 10; shape = 5; tonica=tonicaToString(chord[0]); break; // major third from M
+            case 1: color = 10; shape = 31; break; // minor second from sus4#5b9
+            case 2: color = 10; shape = 6; break; // major second from sus2
+            case 3: color = 10; shape = 4; break; // minor third from m
+            case 4: color = 10; shape = 5; break; // major third from M
+            case 5: color = 10; shape = 7; break; // perfect four from sus4
+            case 6: color = 37; shape = 19; break; // tritone from b5 (first and third note)
+            case 7: color = 10; shape = 38; break; // perfect fifth from fifth chord
+            case 8: color = 37; shape = 22; break; // sixth minor from #5 (first and third note)
+
+            //case 9: color = 37; shape = 35; break; // sixth major from Maj7/6no5 (first and third note)
+            //case 10: color = 37; shape = 27; break; // seventh minor from M9no5 (first and third note)
+            //case 11: color = 37; shape = 36; break; // seventh major from Maj9no5 (first and third note)
             default: color = 0; shape = 1; tonica=null; break; // revert to single note on boh
         }
         const cname = soloNota(chord[0]) + "-" + soloNota(chord[1]);
-        if(offline_mode){
+        if(tonica && ((send && emc_channel) || offline_mode)){
+            if(!offline_mode){
+                const tonicaCode = m.toMidi(tonica);
+                sendShapeColor(tonicaCode, shape-1, color, velocity, emc_channel);
+            }
             $(document).trigger('emccc:chord',[ cname, {
                 "chord":cname,
                 "shape":shape,
                 "color":color,
-                "tonica":tonica,
+                "tonica":tonicaToString(tonica),
+                "n":n,
                 "notes":chord
             } ]);
         }
         return;
     }
-    $(document).trigger('emccc:chord'); // undef chord
+//    $(document).trigger('emccc:chord'); // undef chord
 }
 
 //console.log(detect);
@@ -392,13 +420,15 @@ const shapeMap = {
     • M7#5 
 • mb6
 • m9no5 // not recognized
-• M9no5
+    • M9no5
 • Madd9b5
 • Maj7b5
 • M7b9no5
 • sus4#5b9
-• sus4add#5 • Maddb5
-• M6add4no5 • Maj7/6no5
+• sus4add#5 
+• Maddb5
+• M6add4no5 
+• Maj7/6no5
 • Maj9no5
 • Fourths
 • Fifths
@@ -407,6 +437,7 @@ const shapeMap = {
 if (typeof window !== 'undefined') {
     window.SetEMCChannel = function(s) {
         emc_channel = s;
+        Cookies.set('emcc midi ch', emc_channel);
     }
     window.midi = function(s) {
         return m.midiToNoteName(s);
@@ -431,7 +462,7 @@ if (typeof window !== 'undefined') {
     }
 }
 
-},{"@tonaljs/chord":6,"@tonaljs/midi":12,"@tonaljs/tonal":21,"webmidi":22}],2:[function(require,module,exports){
+},{"@tonaljs/chord":6,"@tonaljs/midi":12,"@tonaljs/tonal":21,"js-cookie":22,"webmidi":23}],2:[function(require,module,exports){
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('@tonaljs/core')) :
   typeof define === 'function' && define.amd ? define(['exports', '@tonaljs/core'], factory) :
@@ -3719,6 +3750,171 @@ if (typeof window !== 'undefined') {
 
 
 },{"@tonaljs/abc-notation":2,"@tonaljs/array":3,"@tonaljs/chord":6,"@tonaljs/chord-type":5,"@tonaljs/collection":7,"@tonaljs/core":8,"@tonaljs/duration-value":9,"@tonaljs/interval":10,"@tonaljs/key":11,"@tonaljs/midi":12,"@tonaljs/mode":13,"@tonaljs/note":14,"@tonaljs/pcset":15,"@tonaljs/progression":16,"@tonaljs/range":17,"@tonaljs/roman-numeral":18,"@tonaljs/scale":20,"@tonaljs/scale-type":19}],22:[function(require,module,exports){
+/*!
+ * JavaScript Cookie v2.2.1
+ * https://github.com/js-cookie/js-cookie
+ *
+ * Copyright 2006, 2015 Klaus Hartl & Fagner Brack
+ * Released under the MIT license
+ */
+;(function (factory) {
+	var registeredInModuleLoader;
+	if (typeof define === 'function' && define.amd) {
+		define(factory);
+		registeredInModuleLoader = true;
+	}
+	if (typeof exports === 'object') {
+		module.exports = factory();
+		registeredInModuleLoader = true;
+	}
+	if (!registeredInModuleLoader) {
+		var OldCookies = window.Cookies;
+		var api = window.Cookies = factory();
+		api.noConflict = function () {
+			window.Cookies = OldCookies;
+			return api;
+		};
+	}
+}(function () {
+	function extend () {
+		var i = 0;
+		var result = {};
+		for (; i < arguments.length; i++) {
+			var attributes = arguments[ i ];
+			for (var key in attributes) {
+				result[key] = attributes[key];
+			}
+		}
+		return result;
+	}
+
+	function decode (s) {
+		return s.replace(/(%[0-9A-Z]{2})+/g, decodeURIComponent);
+	}
+
+	function init (converter) {
+		function api() {}
+
+		function set (key, value, attributes) {
+			if (typeof document === 'undefined') {
+				return;
+			}
+
+			attributes = extend({
+				path: '/'
+			}, api.defaults, attributes);
+
+			if (typeof attributes.expires === 'number') {
+				attributes.expires = new Date(new Date() * 1 + attributes.expires * 864e+5);
+			}
+
+			// We're using "expires" because "max-age" is not supported by IE
+			attributes.expires = attributes.expires ? attributes.expires.toUTCString() : '';
+
+			try {
+				var result = JSON.stringify(value);
+				if (/^[\{\[]/.test(result)) {
+					value = result;
+				}
+			} catch (e) {}
+
+			value = converter.write ?
+				converter.write(value, key) :
+				encodeURIComponent(String(value))
+					.replace(/%(23|24|26|2B|3A|3C|3E|3D|2F|3F|40|5B|5D|5E|60|7B|7D|7C)/g, decodeURIComponent);
+
+			key = encodeURIComponent(String(key))
+				.replace(/%(23|24|26|2B|5E|60|7C)/g, decodeURIComponent)
+				.replace(/[\(\)]/g, escape);
+
+			var stringifiedAttributes = '';
+			for (var attributeName in attributes) {
+				if (!attributes[attributeName]) {
+					continue;
+				}
+				stringifiedAttributes += '; ' + attributeName;
+				if (attributes[attributeName] === true) {
+					continue;
+				}
+
+				// Considers RFC 6265 section 5.2:
+				// ...
+				// 3.  If the remaining unparsed-attributes contains a %x3B (";")
+				//     character:
+				// Consume the characters of the unparsed-attributes up to,
+				// not including, the first %x3B (";") character.
+				// ...
+				stringifiedAttributes += '=' + attributes[attributeName].split(';')[0];
+			}
+
+			return (document.cookie = key + '=' + value + stringifiedAttributes);
+		}
+
+		function get (key, json) {
+			if (typeof document === 'undefined') {
+				return;
+			}
+
+			var jar = {};
+			// To prevent the for loop in the first place assign an empty array
+			// in case there are no cookies at all.
+			var cookies = document.cookie ? document.cookie.split('; ') : [];
+			var i = 0;
+
+			for (; i < cookies.length; i++) {
+				var parts = cookies[i].split('=');
+				var cookie = parts.slice(1).join('=');
+
+				if (!json && cookie.charAt(0) === '"') {
+					cookie = cookie.slice(1, -1);
+				}
+
+				try {
+					var name = decode(parts[0]);
+					cookie = (converter.read || converter)(cookie, name) ||
+						decode(cookie);
+
+					if (json) {
+						try {
+							cookie = JSON.parse(cookie);
+						} catch (e) {}
+					}
+
+					jar[name] = cookie;
+
+					if (key === name) {
+						break;
+					}
+				} catch (e) {}
+			}
+
+			return key ? jar[key] : jar;
+		}
+
+		api.set = set;
+		api.get = function (key) {
+			return get(key, false /* read as raw */);
+		};
+		api.getJSON = function (key) {
+			return get(key, true /* read as json */);
+		};
+		api.remove = function (key, attributes) {
+			set(key, '', extend(attributes, {
+				expires: -1
+			}));
+		};
+
+		api.defaults = {};
+
+		api.withConverter = init;
+
+		return api;
+	}
+
+	return init(function () {});
+}));
+
+},{}],23:[function(require,module,exports){
 /*
 
 WebMidi v2.5.1

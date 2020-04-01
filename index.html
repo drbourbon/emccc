@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <title>EMCCC - MIDI</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Utility for sequencing chord progressions on elektron model:cycles">
@@ -25,6 +26,18 @@ body {
 }
 
     </style>
+
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-54043929-11"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-54043929-11');
+</script>
+
+
   </head>
   <body>
 
@@ -67,7 +80,7 @@ body {
         </div>
         <br>
         <div class="d-flex justify-content-center">
-          <h1 class="display-2 "><span id="out" class="badge badge-light badge-pill"></span></h1>
+          <h1 class="display-4"><span id="out" class="badge badge-light badge-pill"></span></h1>
         </div>
         <br>
         <div class="d-flex justify-content-center">
@@ -96,14 +109,19 @@ body {
 $(function() {
   enableWebMidi(); 
 
+  $(document).on("emccc:midich", (e,c) => { $('#channel').val(c); });
   $(document).on("emccc:chord", (e,c,r) => {
     if(c){
       $('#out').text(c);
-      if(r && r.shape && r.color){
+      if(r && r.tonica){
         $('#shape').html(
           `shape:<a onclick="sendShape()"><span class="badge badge-info badge-pill">${r.shape}</span></a>
            color:<a onclick="sendShape()"><span class="badge badge-secondary badge-pill">${r.color}</span></a>
-           note:<a onclick="sendNote()"><span class="badge badge-dark badge-pill">${r.tonica}</span></a>`);
+           note:<a onclick="sendNote()"><span class="badge badge-dark badge-pill">${r.tonica}</span></a>`
+        );
+        if(r.n>1){
+          gtag('event', c, { 'event_category': 'midi:chord', 'event_label': r.color + '/' + r.shape });
+        }
       }
     } else {
 //      $('#out').text("");
