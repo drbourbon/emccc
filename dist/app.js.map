@@ -1,1 +1,0 @@
-{"version":3,"sources":["app.js"],"names":[],"mappings":";;;;;;;;;;;AACA,aAAA,IAAA,EAAA,QAAA","file":"app.js","sourceRoot":"..","sourcesContent":["// import { ChordDetect } from \"@tonaljs/tonal\";\nimport { detect } from \"@tonaljs/chord-detect\";\n"]}
