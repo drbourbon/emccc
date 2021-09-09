@@ -75,6 +75,11 @@ function enableWebMidi() {
 
 function playNote(note){
 //    console.log(note);
+/*
+    const n = current_notes.filter(Boolean).length ;
+    if(n>3)return; // M:C max polyphony is 4..
+*/
+
     current_notes[note] = true;
     current_notes_velocity[note] = 0.5;
     playedChord(true);
@@ -265,7 +270,7 @@ function processChord(cname, chord, velocity, send) {
 }
 
 function playedChord(send) {
-    const n = current_notes.filter(Boolean).length ;
+    let n = current_notes.filter(Boolean).length ;
 
     var chord = [];
     var velocity = 0;
@@ -276,7 +281,21 @@ function playedChord(send) {
         }
     }
 //    console.log(current_notes.filter(Boolean));
+
+    /*
+    // remove unisons (prefer lower note: arbitrary criteria)
+    chord = chord.filter((n,i) => { 
+        const name = soloNota(n);
+        const has_lower_unison = chord.some( (v,j) => {
+            if(i==j)return false;
+            const inner_name = soloNota(v);
+            return inner_name === name && v<n; 
+        });
+        return !has_lower_unison;
+    });
 //    console.log(chord);
+    n=chord.length;
+    */
 
     if(n>2){
         const name = c.detect(chord);
