@@ -32,16 +32,6 @@
 
 </style>
 
-<!-- Global site tag (gtag.js) - Google Analytics -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=UA-54043929-11"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'UA-54043929-11');
-</script>
-
   </head>
   <body>
 
@@ -67,7 +57,7 @@
 
     <!-- Scripts -->
     <script src="/node_modules/jquery/dist/jquery.min.js"></script>
-    <script src="/node_modules/nexusui/dist/NexusUI.min.js"></script>
+    <script src="/node_modules/nexusui/dist/NexusUI.js"></script>
     <script src="detect.js?101"></script>
 
 <script>
@@ -104,10 +94,6 @@ $(function() {
           `shape:<span id="shape" class="badge badge-info badge-pill">${r.shape}</span>
            color:<span id="shape" class="badge badge-secondary badge-pill">${r.color}</span>
            note:<span id="shape" class="badge badge-dark badge-pill">${r.tonica}</span>`);
-
-        if(r.n>1){
-          gtag('event', c, { 'event_category': 'offline:chord', 'event_label': r.color + '/' + r.shape });
-        }
 
       } else {
         $('#shape').text("");
