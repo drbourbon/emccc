@@ -93,7 +93,7 @@ function stopNote(note){
 }
 
 function isModelCycles(s){
-    return s.name == 'Elektron Model:Cycles'
+    return s.name.indexOf('Elektron Model:Cycles') == 0;
 }
 
 function connectInputs() {
